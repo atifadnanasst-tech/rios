@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom palette matching RIG exactly */
+  --color-rios-bg: #09090B;
+  --color-rios-sidebar: #0F0F12;
+  --color-rios-card: #131316;
+  --color-rios-card-hover: #18181D;
+  --color-rios-border: rgba(255, 255, 255, 0.05);
+  --color-rios-border-hover: rgba(255, 255, 255, 0.1);
+  --color-rios-purple: #7C3AED;
+  --color-rios-purple-glow: rgba(124, 58, 237, 0.15);
+  --color-rios-text-primary: #F4F4F5;
+  --color-rios-text-secondary: #A1A1AA;
+  --color-rios-text-muted: #71717A;
+
+  /* Semantic categories */
+  --color-rios-critical: #EF4444;
+  --color-rios-commitment: #F97316;
+  --color-rios-commercial: #F59E0B;
+  --color-rios-building: #3B82F6;
+  --color-rios-trust: #14B8A6;
+  --color-rios-nurture: #10B981;
+
+  /* Border radius (RIG compliant) */
+  --radius-rios-card: 14px;
+  --radius-rios-panel: 18px;
+  --radius-rios-button: 10px;
+  --radius-rios-input: 10px;
+}
+
+/* Base custom resets & typography settings */
+html, body {
+  background-color: #09090B;
+  color: #F4F4F5;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Sleek custom scrollbars to prevent standard bright scrollbars on dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #09090B;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272A;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3F3F46;
+}
+
+/* Micro animations / focus glows */
+.focus-ring {
+  outline: none;
+  transition: all 150ms ease;
+}
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px #09090B, 0 0 0 4px #7C3AED;
+}
+
+/* Custom interactive selections */
+::selection {
+  background-color: rgba(124, 58, 237, 0.3);
+  color: #FFFFFF;
+}

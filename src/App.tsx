@@ -1,0 +1,633 @@
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import {
+  SlidersHorizontal,
+  ChevronDown,
+  Sparkles,
+  Plus,
+  Users,
+  CheckSquare,
+  Globe,
+  ChevronLeft,
+  ChevronRight,
+  Inbox,
+  AlertTriangle,
+  Info,
+  Calendar,
+  X,
+  Clock
+} from 'lucide-react';
+import { useStore, getFilteredWorkItems } from './store/useStore.ts';
+import { Sidebar } from './components/layout/Sidebar.tsx';
+import { Header } from './components/layout/Header.tsx';
+import { KPICard } from './components/dashboard/KPICard.tsx';
+import { QueueTabs } from './components/dashboard/QueueTabs.tsx';
+import { CategoryPill } from './components/dashboard/CategoryPill.tsx';
+import { RelationshipMissionCard } from './components/relationship/RelationshipMissionCard.tsx';
+import { RelationshipAdvisor } from './components/relationship/RelationshipAdvisor.tsx';
+import { BulkToolbar } from './components/relationship/BulkToolbar.tsx';
+import { Relationship, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
+
+export default function App() {
+  const store = useStore();
+  const [activeView, setActiveView] = useState('command-center');
+  
+  // Modals / Overlays
+  const [showBriefing, setShowBriefing] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // New relationship form fields
+  const [newRelName, setNewRelName] = useState('');
+  const [newRelCompany, setNewRelCompany] = useState('');
+  const [newRelLocation, setNewRelLocation] = useState('');
+  const [newRelCategory, setNewRelCategory] = useState<RelationshipCategory>('building');
+  const [newRelStage, setNewRelStage] = useState<RelationshipStage>('Introduction');
+  const [newRelPriority, setNewRelPriority] = useState<PriorityLevel>('Medium');
+  const [newRelChannel, setNewRelChannel] = useState<CommunicationChannel>('email');
+
+  // Filter lists using the Zustand store selectors
+  const filteredWorkItems = getFilteredWorkItems(store);
+  const selectedWorkItem = store.workItems.find(item => item.id === store.selectedWorkItemId) || null;
+
+  // Counts of each category
+  const getCategoryCount = (cat: RelationshipCategory) => {
+    // Return mock-realistic numbers matching the screenshot if no modifications are made
+    const baseCounts = {
+      critical: 12,
+      commitment: 5,
+      commercial: 7,
+      building: 31,
+      nurture: 42
+    };
+    
+    // Supplement with any real dynamic calculations for added elements
+    const activeAdded = store.workItems.filter(item => !item.completed && item.category === cat).length;
+    const initialBase = baseCounts[cat];
+    // Return relative count
+    return activeAdded > 0 ? initialBase + (activeAdded - 7) : initialBase;
+  };
+
+  // Select all checkbox handler
+  const isAllChecked = filteredWorkItems.length > 0 && filteredWorkItems.every(item => store.selectedWorkItemIds.includes(item.id));
+  const handleSelectAllChange = () => {
+    store.selectAllWorkItems(!isAllChecked);
+  };
+
+  // New relationship creator submission
+  const handleCreateRelationship = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRelName || !newRelCompany) return;
+
+    const relId = `rel-${Date.now()}`;
+    const workId = `work-${Date.now()}`;
+
+    const newRelationship: Relationship = {
+      id: relId,
+      name: newRelName,
+      avatar: '', // Fallback initials
+      company: newRelCompany,
+      location: newRelLocation || 'Remote',
+      starred: false,
+      score: 60,
+      status: 'Stable',
+      commercialGoal: 'Introduction Alignment',
+      currentStage: newRelStage,
+      suggestedChannel: newRelChannel,
+      nextBestAction: `Reach out via ${newRelChannel} and introduce product capabilities.`,
+      aiConfidence: 80,
+      tags: ['New Account'],
+      whyToday: `${newRelName} was recently added to RIOS. Perfect timing to establish a professional line of communication.`
+    };
+
+    const newWorkItem = {
+      id: workId,
+      relationshipId: relId,
+      relationship: newRelationship,
+      category: newRelCategory,
+      description: `Initiate communication on ${newRelCategory} objective`,
+      priority: newRelPriority,
+      dueTime: '04:30 PM',
+      channel: newRelChannel,
+      completed: false,
+      starred: false
+    };
+
+    store.addRelationship(newRelationship);
+    store.addWorkItem(newWorkItem);
+
+    // Reset fields
+    setNewRelName('');
+    setNewRelCompany('');
+    setNewRelLocation('');
+    setShowAddModal(false);
+  };
+
+  return (
+    <div id="rios-app-container" className="flex h-screen bg-rios-bg font-sans overflow-hidden select-none">
+      
+      {/* COLUMN 1: LEFT SIDEBAR NAVIGATION */}
+      <Sidebar
+        activeView={activeView}
+        onNavigate={(view) => {
+          if (view === 'command-center') {
+            setActiveView(view);
+          } else {
+            // Placeholder routes as requested in the goal guidelines
+            alert(`"${view.charAt(0).toUpperCase() + view.slice(1)}" is set as a navigation placeholder in this Command Center build.`);
+          }
+        }}
+        onAddRelationship={() => setShowAddModal(true)}
+      />
+
+      {/* MAIN LAYOUT WRAPPER (COLUMN 2 & COLUMN 3 CONTAINER) */}
+      <div className="flex-1 flex flex-col min-w-0">
+        
+        {/* UPPER HEADER */}
+        <Header onShowAIBriefing={() => setShowBriefing(true)} />
+
+        {/* BOTTOM WORKSPACE */}
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+          
+          {/* COLUMN 2: CENTER WORK QUEUE CONTENT */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-y-auto px-6 py-6 space-y-6">
+            
+            {/* KPI STATS ROW */}
+            <div className="flex gap-4 select-none">
+              <KPICard
+                title="Today's Mission"
+                value="87"
+                subtext="Work Items"
+                icon={CheckSquare}
+              />
+              <KPICard
+                title="Est. Time"
+                value="2h 15m"
+                subtext="Focus Time"
+                icon={Clock}
+              />
+              <KPICard
+                title="Advance"
+                value="23"
+                subtext="Relationships"
+                icon={Users}
+              />
+              <KPICard
+                title="Reply Rate"
+                value="42%"
+                subtext="Last 7 Days"
+                icon={Globe}
+              />
+            </div>
+
+            {/* QUEUE NAVIGATION & TABS */}
+            <QueueTabs
+              activeTab={store.activeQueueTab}
+              onChangeTab={(tab) => store.setQueueTab(tab)}
+            />
+
+            {/* SEMANTIC CATEGORY FILTER PILLES ROW */}
+            <div className="grid grid-cols-5 gap-3">
+              <CategoryPill
+                category="critical"
+                label="Critical"
+                count={getCategoryCount('critical')}
+                isActive={store.activeCategoryFilter === 'critical'}
+                onClick={() => store.setCategoryFilter('critical')}
+              />
+              <CategoryPill
+                category="commitment"
+                label="Commitments"
+                count={getCategoryCount('commitment')}
+                isActive={store.activeCategoryFilter === 'commitment'}
+                onClick={() => store.setCategoryFilter('commitment')}
+              />
+              <CategoryPill
+                category="commercial"
+                label="Commercial"
+                count={getCategoryCount('commercial')}
+                isActive={store.activeCategoryFilter === 'commercial'}
+                onClick={() => store.setCategoryFilter('commercial')}
+              />
+              <CategoryPill
+                category="building"
+                label="Relationship Building"
+                count={getCategoryCount('building')}
+                isActive={store.activeCategoryFilter === 'building'}
+                onClick={() => store.setCategoryFilter('building')}
+              />
+              <CategoryPill
+                category="nurture"
+                label="Nurture"
+                count={getCategoryCount('nurture')}
+                isActive={store.activeCategoryFilter === 'nurture'}
+                onClick={() => store.setCategoryFilter('nurture')}
+              />
+            </div>
+
+            {/* QUEUE CONTROLS HEADER BAR */}
+            <div className="flex items-center justify-between py-2 border-b border-white/[0.03] select-none">
+              {/* Sort selector */}
+              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors">
+                <span>Sort: Priority & Next Action</span>
+                <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+              </button>
+
+              {/* Check All Actions Bar */}
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-zinc-400 hover:text-white transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={isAllChecked}
+                    onChange={handleSelectAllChange}
+                    className="rounded border-white/10 text-rios-purple bg-zinc-950/40 focus:ring-0 focus:outline-none focus:ring-offset-0"
+                  />
+                  <span>Select All</span>
+                </label>
+
+                <button
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+                  onClick={() => store.selectedWorkItemIds.length > 0 ? alert('Open bulk action details') : alert('Please select cards first.')}
+                >
+                  <Inbox className="w-3.5 h-3.5" />
+                  <span>Bulk Actions</span>
+                </button>
+
+                <button className="p-2 rounded-lg bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* ACTIVE LIST OF MISSION CARDS */}
+            <div className="flex flex-col gap-3 min-h-[300px]">
+              <AnimatePresence initial={false} mode="popLayout">
+                {filteredWorkItems.length > 0 ? (
+                  filteredWorkItems.map((item) => (
+                    <motion.div
+                      key={item.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: -10 }}
+                      layout
+                      transition={{ duration: 0.18 }}
+                    >
+                      <RelationshipMissionCard
+                        item={item}
+                        isSelected={store.selectedWorkItemId === item.id}
+                        isChecked={store.selectedWorkItemIds.includes(item.id)}
+                        onSelect={() => store.selectWorkItem(item.id)}
+                        onToggleCheck={(e) => {
+                          e.stopPropagation();
+                          store.toggleSelectWorkItemForBulk(item.id);
+                        }}
+                        onChangeStage={(stage) => store.updateStage(item.relationshipId, stage)}
+                      />
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center select-none">
+                    <Inbox className="w-10 h-10 text-zinc-700 mb-3" />
+                    <span className="text-sm font-semibold text-zinc-400">No active work items</span>
+                    <p className="text-xs text-zinc-500 max-w-xs mt-1 leading-normal">
+                      Try clearing filters, selecting another queue tab, or adding a new client.
+                    </p>
+                  </div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* QUEUE PAGINATION TABLE FOOTER */}
+            <div className="flex items-center justify-between pt-4 pb-8 select-none border-t border-white/[0.03]">
+              <span className="text-[11px] font-mono text-rios-text-muted">
+                Showing 1 to {filteredWorkItems.length} of {filteredWorkItems.length} work items
+              </span>
+
+              <div className="flex items-center gap-4">
+                {/* Numeric Pagination Buttons */}
+                <div className="flex items-center gap-1">
+                  <button className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all">
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button className="w-7 h-7 rounded-md bg-rios-purple text-white text-xs font-bold flex items-center justify-center">
+                    1
+                  </button>
+                  <button className="w-7 h-7 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center">
+                    2
+                  </button>
+                  <button className="w-7 h-7 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center">
+                    3
+                  </button>
+                  <span className="text-zinc-600 text-xs px-1">...</span>
+                  <button className="w-7 h-7 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center">
+                    9
+                  </button>
+                  <button className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all">
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Per page Select Option */}
+                <button className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs text-zinc-400 hover:text-white transition-colors">
+                  <span>10 / page</span>
+                  <ChevronDown className="w-3 h-3 text-zinc-500" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* COLUMN 3: RIGHT RELATIONSHIP ADVISOR PANEL */}
+          <RelationshipAdvisor
+            item={selectedWorkItem}
+            onClose={() => store.selectWorkItem(null)}
+            onComplete={(id) => {
+              store.completeWorkItem(id);
+              // Auto-select next available item if list is populated
+              const remaining = filteredWorkItems.filter(item => item.id !== id);
+              if (remaining.length > 0) {
+                store.selectWorkItem(remaining[0].id);
+              } else {
+                store.selectWorkItem(null);
+              }
+            }}
+            onSnooze={(id) => {
+              store.snoozeWorkItem(id);
+              alert('Work item scheduled action snoozed for 2 hours.');
+            }}
+            onUpdateStage={(relId, stage) => store.updateStage(relId, stage)}
+            onGenerateMessage={(id) => store.generateAIMessage(id)}
+            isGeneratingMessage={store.isGeneratingMessage}
+            generatedMessage={store.generatedMessage}
+            onClearGenerated={() => store.clearGeneratedMessage()}
+          />
+        </div>
+      </div>
+
+      {/* FLOATING ACTION BULK TOOLBAR POPUP */}
+      <BulkToolbar
+        selectedCount={store.selectedWorkItemIds.length}
+        onGenerate={() => {
+          alert(`Triggering automated AI Message drafting for ${store.selectedWorkItemIds.length} relationships.`);
+          store.clearBulkSelection();
+        }}
+        onSnooze={() => {
+          store.bulkSnooze();
+          alert('Selected items snoozed until tomorrow morning.');
+        }}
+        onComplete={() => {
+          store.bulkComplete();
+          alert('Bulk completed selected work items successfully!');
+        }}
+        onChangeStage={(stage) => {
+          store.bulkChangeStage(stage);
+          alert(`Successfully transitioned all selected client cards to "${stage}" stage.`);
+        }}
+        onClear={() => store.clearBulkSelection()}
+      />
+
+      {/* MODAL OVERLAY 1: AI BRIEFING PANEL */}
+      <AnimatePresence>
+        {showBriefing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowBriefing(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-xl bg-zinc-950 border border-white/10 rounded-2xl p-6 shadow-2xl z-10 text-zinc-100 font-sans"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-rios-purple" />
+                  <h3 className="text-base font-bold">Your Relationship Briefing</h3>
+                </div>
+                <button
+                  onClick={() => setShowBriefing(false)}
+                  className="p-1 rounded-full text-zinc-500 hover:text-white transition-colors hover:bg-white/5 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Briefing Text Content */}
+              <div className="py-6 space-y-4 max-h-[400px] overflow-y-auto pr-2">
+                <div className="p-3.5 bg-rios-purple-glow bg-rios-purple/5 border border-rios-purple/10 rounded-xl flex gap-3">
+                  <Info className="w-5 h-5 text-[#A78BFA] shrink-0 mt-0.5" />
+                  <p className="text-xs text-zinc-300 leading-relaxed">
+                    <strong className="text-white">General Alignment Summary:</strong> Today you have <strong className="text-white">12 Critical items</strong> and <strong className="text-white">5 Active Commitments</strong>. Focus on sending the Metro project quotation to Ahmed El-Mansy first.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-rios-text-muted">Today's Priorities</h4>
+                  
+                  <div className="p-3 bg-zinc-900 border border-white/5 rounded-xl flex justify-between items-center">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-semibold">Ahmed El-Mansy</span>
+                      <span className="text-[11px] text-rios-text-secondary">Quotation promised yesterday. Highly active.</span>
+                    </div>
+                    <span className="text-[10px] font-mono bg-red-950/40 text-rios-critical px-2 py-0.5 rounded border border-red-500/10">09:30 AM</span>
+                  </div>
+
+                  <div className="p-3 bg-zinc-900 border border-white/5 rounded-xl flex justify-between items-center">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-semibold">James Kim</span>
+                      <span className="text-[11px] text-rios-text-secondary">Contract MSA stalled in legal review for 6 days.</span>
+                    </div>
+                    <span className="text-[10px] font-mono bg-amber-950/40 text-rios-commercial px-2 py-0.5 rounded border border-amber-500/10">11:30 AM</span>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <p className="text-[11px] text-rios-text-muted leading-relaxed italic">
+                    "Maintain peer-level high integrity. Sending personalized, precise updates today will expand Orascom and L&T commercial parameters by 15%." — RIOS Intelligent Agent
+                  </p>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="pt-4 border-t border-white/5 flex justify-end gap-3">
+                <button
+                  onClick={() => setShowBriefing(false)}
+                  className="px-4 py-2 rounded-lg bg-zinc-900 border border-white/5 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 transition-colors cursor-pointer"
+                >
+                  Close Briefing
+                </button>
+                <button
+                  onClick={() => {
+                    setShowBriefing(false);
+                    store.selectWorkItem('work-1');
+                    store.generateAIMessage('work-1');
+                  }}
+                  className="px-4 py-2 rounded-lg bg-rios-purple hover:bg-opacity-90 text-xs font-bold text-white transition-colors cursor-pointer"
+                >
+                  Start Mission #1
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL OVERLAY 2: ADD NEW RELATIONSHIP FORM */}
+      <AnimatePresence>
+        {showAddModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddModal(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-lg bg-zinc-950 border border-white/10 rounded-2xl p-6 shadow-2xl z-10 text-zinc-100 font-sans"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <Inbox className="w-5 h-5 text-rios-purple" />
+                  <h3 className="text-base font-bold">Add Relationship Mission</h3>
+                </div>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="p-1 rounded-full text-zinc-500 hover:text-white transition-colors hover:bg-white/5 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Form Fields */}
+              <form onSubmit={handleCreateRelationship} className="py-4 space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Client Name</label>
+                    <input
+                      type="text"
+                      required
+                      value={newRelName}
+                      onChange={(e) => setNewRelName(e.target.value)}
+                      placeholder="e.g. Liam Sterling"
+                      className="w-full bg-zinc-900 border border-white/5 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 placeholder-zinc-600"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Company</label>
+                    <input
+                      type="text"
+                      required
+                      value={newRelCompany}
+                      onChange={(e) => setNewRelCompany(e.target.value)}
+                      placeholder="e.g. Al-Futtaim Group"
+                      className="w-full bg-zinc-900 border border-white/5 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 placeholder-zinc-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Location</label>
+                    <input
+                      type="text"
+                      value={newRelLocation}
+                      onChange={(e) => setNewRelLocation(e.target.value)}
+                      placeholder="e.g. Dubai | UAE"
+                      className="w-full bg-zinc-900 border border-white/5 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 placeholder-zinc-600"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Suggested Channel</label>
+                    <select
+                      value={newRelChannel}
+                      onChange={(e) => setNewRelChannel(e.target.value as CommunicationChannel)}
+                      className="w-full bg-zinc-900 border border-white/5 p-2.5 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 cursor-pointer"
+                    >
+                      <option value="email">Email</option>
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="whatsapp">WhatsApp</option>
+                      <option value="phone">Phone</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Category</label>
+                    <select
+                      value={newRelCategory}
+                      onChange={(e) => setNewRelCategory(e.target.value as RelationshipCategory)}
+                      className="w-full bg-zinc-900 border border-white/5 p-2 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 cursor-pointer"
+                    >
+                      <option value="critical">Critical</option>
+                      <option value="commitment">Commitment</option>
+                      <option value="commercial">Commercial</option>
+                      <option value="building">Building</option>
+                      <option value="nurture">Nurture</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Stage</label>
+                    <select
+                      value={newRelStage}
+                      onChange={(e) => setNewRelStage(e.target.value as RelationshipStage)}
+                      className="w-full bg-zinc-900 border border-white/5 p-2 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 cursor-pointer"
+                    >
+                      <option value="Introduction">Introduction</option>
+                      <option value="Meeting">Meeting</option>
+                      <option value="Solution Alignment">Solution Alignment</option>
+                      <option value="Trust Building">Trust Building</option>
+                      <option value="Recognition">Recognition</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-rios-text-muted block">Priority</label>
+                    <select
+                      value={newRelPriority}
+                      onChange={(e) => setNewRelPriority(e.target.value as PriorityLevel)}
+                      className="w-full bg-zinc-900 border border-white/5 p-2 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 cursor-pointer"
+                    >
+                      <option value="High">High</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Low">Low</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-white/5 flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="px-4 py-2 rounded-lg bg-zinc-900 border border-white/5 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 rounded-lg bg-rios-purple hover:bg-opacity-90 text-xs font-bold text-white transition-colors cursor-pointer shadow-[0_4px_12px_rgba(124,58,237,0.3)]"
+                  >
+                    Add Relationship
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
