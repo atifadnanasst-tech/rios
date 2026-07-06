@@ -68,6 +68,17 @@ approve outbound communication. Full doctrine in `01_CONSTITUTION.md`.
   back for routine fixes — verify it yourself first.
 - Don't guess at field names, types, or existing file contents. Read the
   actual current file before editing it.
+- If static analysis (reading files, grep) doesn't conclusively reveal a
+  bug's cause, prefer asking the user to test one specific thing in their
+  already-running dev server (e.g. "click X, open devtools, tell me what
+  console.log(document.activeElement) shows") over installing new tooling.
+  Do NOT install Playwright, a browser, or other heavyweight test
+  infrastructure to debug a single UI interaction bug — that's proportionate
+  for building a real regression-test suite later, not for one-off diagnosis.
+- Never start a new dev server if one might already be running (check
+  `npm run dev` isn't already active before running it yourself, and prefer
+  asking the user to check their existing terminal over starting a second
+  instance on a different port).
 - Git commits: small, descriptive messages. The project uses semantic
   version tags (`v1.0.0`, `v1.1.0`, etc.) at real milestones — suggest a
   tag bump when you ship something that feels like one, but don't tag

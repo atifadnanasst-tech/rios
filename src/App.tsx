@@ -69,9 +69,19 @@ export default function App() {
   // (including inside these same modals) is never hijacked.
   useEffect(() => {
     function handleGlobalKeyDown(e: KeyboardEvent) {
-      const tag = (document.activeElement?.tagName || '').toLowerCase();
-      const isEditable = tag === 'input' || tag === 'textarea' || tag === 'select' || (document.activeElement as HTMLElement)?.isContentEditable;
-      if (isEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+      const active = document.activeElement as HTMLInputElement | null;
+      const tag = (active?.tagName || '').toLowerCase();
+      // A focused checkbox/radio doesn't mean the user is typing — only
+      // block hotkeys for genuine text-entry elements. Discovered via a
+      // real bug: clicking a card's bulk-select checkbox left it focused,
+      // which incorrectly blocked I/R afterward.
+      const nonTextInputTypes = ['checkbox', 'radio', 'button', 'submit', 'reset', 'range'];
+      const isTextEntry =
+        tag === 'textarea' ||
+        tag === 'select' ||
+        active?.isContentEditable ||
+        (tag === 'input' && !nonTextInputTypes.includes(active?.type || 'text'));
+      if (isTextEntry || e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === 'i' || e.key === 'I') {
         e.preventDefault();

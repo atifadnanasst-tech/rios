@@ -201,9 +201,9 @@ export const ImportInteractionsModal: React.FC<ImportInteractionsModalProps> = (
                 </label>
                 <div className="relative">
                   {selected ? (
-                    <Check className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Check className="w-4 h-4 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   ) : (
-                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   )}
                   <input
                     type="text"
@@ -218,7 +218,7 @@ export const ImportInteractionsModal: React.FC<ImportInteractionsModalProps> = (
                     className={`h-10 pl-9 pr-3 ${fieldClasses} ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                   />
                   {searching && (
-                    <Loader2 className="w-4 h-4 text-zinc-500 absolute right-3 top-1/2 -translate-y-1/2 animate-spin" />
+                    <Loader2 className="w-4 h-4 text-zinc-500 absolute right-3 top-1/2 -translate-y-1/2 animate-spin pointer-events-none" />
                   )}
                   {selected && !searching && !isLocked && (
                     <button
