@@ -5,6 +5,7 @@ export type RelationshipSearchResult = {
   name: string;
   company: string | null;
   position: string | null;
+  lastChannel: 'LinkedIn' | 'Email' | 'WhatsApp' | 'Phone' | null;
 };
 
 // Searches ALL relationships in Supabase directly — unlike the header search,
@@ -17,7 +18,7 @@ export async function searchRelationships(query: string, limit = 10): Promise<Re
 
   const { data, error } = await supabase
     .from('relationships')
-    .select('id, company, position, contacts!inner(first_name, last_name)')
+    .select('id, company, position, last_outreach_channel, contacts!inner(first_name, last_name)')
     .or(`first_name.ilike.%${trimmed}%,last_name.ilike.%${trimmed}%`, { foreignTable: 'contacts' })
     .limit(limit);
 
@@ -30,6 +31,7 @@ export async function searchRelationships(query: string, limit = 10): Promise<Re
       name: contact ? [contact.first_name, contact.last_name].filter(Boolean).join(' ') : 'Unknown',
       company: row.company,
       position: row.position,
+      lastChannel: row.last_outreach_channel,
     };
   });
 }

@@ -59,7 +59,7 @@ export const useStore = create<RIOSState>((set, get) => ({
       set({
         relationships,
         workItems,
-        selectedWorkItemId: workItems[0]?.id ?? null,
+        selectedWorkItemId: null, // nothing auto-selected — user chooses explicitly
         isLoading: false,
       });
     } catch (err) {

@@ -14,13 +14,16 @@ import {
   UserPlus,
   FileSpreadsheet,
   FileText,
-  ClipboardPaste
+  ClipboardPaste,
+  Sparkles
 } from 'lucide-react';
 
 interface SidebarProps {
   activeView?: string;
   onNavigate?: (view: string) => void;
   onAddRelationship?: () => void;
+  onPasteReply?: () => void;
+  onImportInteractions?: () => void;
   id?: string;
 }
 
@@ -28,6 +31,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeView = 'command-center',
   onNavigate,
   onAddRelationship,
+  onPasteReply,
+  onImportInteractions,
   id
 }) => {
   const menuItems = [
@@ -43,11 +48,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   const shortcuts = [
-    { label: 'Add Relationship', icon: UserPlus, action: onAddRelationship },
-    { label: 'Log Interaction', icon: MessageSquare, action: () => alert('Logged Interaction shortcut clicked') },
-    { label: 'Paste Reply', icon: ClipboardPaste, action: () => alert('Paste Reply shortcut clicked') },
-    { label: 'Create Task', icon: CheckSquare, action: () => alert('Create Task shortcut clicked') },
-    { label: 'Import CSV', icon: FileSpreadsheet, action: () => alert('Import CSV shortcut clicked') }
+    {
+      label: 'Add Relationship',
+      icon: UserPlus,
+      action: onAddRelationship,
+      hint: 'Manually create a new relationship from scratch.'
+    },
+    {
+      label: 'Paste Reply',
+      icon: ClipboardPaste,
+      action: onPasteReply,
+      hint: 'Log one message — pick the contact, channel, date, and paste what was said.'
+    },
+    {
+      label: 'Import Interactions',
+      icon: Sparkles,
+      action: onImportInteractions,
+      hint: 'Paste a whole conversation history (email thread, LinkedIn chat, WhatsApp export). AI splits it into individual messages and logs them all at once.'
+    },
+    {
+      label: 'Create Task',
+      icon: CheckSquare,
+      action: () => alert('Create Task shortcut clicked'),
+      hint: 'Coming soon.'
+    },
+    {
+      label: 'Import CSV',
+      icon: FileSpreadsheet,
+      action: () => alert('Import CSV shortcut clicked'),
+      hint: 'Coming soon — bulk contact import from a spreadsheet.'
+    }
   ];
 
   return (
@@ -134,14 +164,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {shortcuts.map((sc, i) => {
               const Icon = sc.icon;
               return (
-                <button
-                  key={i}
-                  onClick={sc.action}
-                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[11px] text-rios-text-secondary hover:text-white hover:bg-white/5 transition-colors text-left"
-                >
-                  <Icon className="w-3.5 h-3.5 text-rios-text-muted" />
-                  <span>{sc.label}</span>
-                </button>
+                <div key={i} className="relative group/tooltip">
+                  <button
+                    onClick={sc.action}
+                    className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[11px] text-rios-text-secondary hover:text-white hover:bg-white/5 transition-colors text-left"
+                  >
+                    <Icon className="w-3.5 h-3.5 text-rios-text-muted" />
+                    <span>{sc.label}</span>
+                  </button>
+
+                  {/* Hover hint — appears to the right so it never gets clipped by the sidebar's own width */}
+                  <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 w-56 z-50 opacity-0 group-hover/tooltip:opacity-100 transition-opacity duration-150">
+                    <div className="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-[10.5px] leading-snug text-zinc-300 shadow-xl">
+                      {sc.hint}
+                    </div>
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -151,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Footer Version Info */}
       <div className="p-4 border-t border-rios-border bg-zinc-950/20 flex items-center justify-between select-none">
         <span className="text-[10px] font-mono text-rios-text-muted tracking-wider">
-          RIOS v1.0.0
+          RIOS v1.1.0
         </span>
         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="System Connected" />
       </div>

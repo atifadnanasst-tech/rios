@@ -6,17 +6,17 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 
   /* Custom palette matching RIG exactly */
-  --color-rios-bg: #09090B;
-  --color-rios-sidebar: #0F0F12;
-  --color-rios-card: #131316;
-  --color-rios-card-hover: #18181D;
-  --color-rios-border: rgba(255, 255, 255, 0.05);
-  --color-rios-border-hover: rgba(255, 255, 255, 0.1);
+  --color-rios-bg: #121215;
+  --color-rios-sidebar: #17171B;
+  --color-rios-card: #1D1D22;
+  --color-rios-card-hover: #26262C;
+  --color-rios-border: rgba(255, 255, 255, 0.14);
+  --color-rios-border-hover: rgba(255, 255, 255, 0.22);
   --color-rios-purple: #7C3AED;
   --color-rios-purple-glow: rgba(124, 58, 237, 0.15);
   --color-rios-text-primary: #F4F4F5;
-  --color-rios-text-secondary: #A1A1AA;
-  --color-rios-text-muted: #71717A;
+  --color-rios-text-secondary: #B4B4BD;
+  --color-rios-text-muted: #8A8A93;
 
   /* Semantic categories */
   --color-rios-critical: #EF4444;
@@ -35,7 +35,7 @@
 
 /* Base custom resets & typography settings */
 html, body {
-  background-color: #09090B;
+  background-color: #121215;
   color: #F4F4F5;
   font-family: var(--font-sans);
   overflow-x: hidden;
@@ -50,7 +50,7 @@ html, body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #09090B;
+  background: #121215;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -68,7 +68,7 @@ html, body {
   transition: all 150ms ease;
 }
 .focus-ring:focus-visible {
-  box-shadow: 0 0 0 2px #09090B, 0 0 0 4px #7C3AED;
+  box-shadow: 0 0 0 2px #121215, 0 0 0 4px #7C3AED;
 }
 
 /* Custom interactive selections */

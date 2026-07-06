@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   SlidersHorizontal,
@@ -26,6 +26,8 @@ import { CategoryPill } from './components/dashboard/CategoryPill.tsx';
 import { RelationshipMissionCard } from './components/relationship/RelationshipMissionCard.tsx';
 import { RelationshipAdvisor } from './components/relationship/RelationshipAdvisor.tsx';
 import { BulkToolbar } from './components/relationship/BulkToolbar.tsx';
+import { LogInteractionModal } from './components/modals/LogInteractionModal.tsx';
+import { ImportInteractionsModal } from './components/modals/ImportInteractionsModal.tsx';
 import { Relationship, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
 
 export default function App() {
@@ -35,6 +37,8 @@ export default function App() {
   // Modals / Overlays
   const [showBriefing, setShowBriefing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showPasteReply, setShowPasteReply] = useState(false);
+  const [showImportInteractions, setShowImportInteractions] = useState(false);
 
   // New relationship form fields
   const [newRelName, setNewRelName] = useState('');
@@ -48,6 +52,38 @@ export default function App() {
   // Filter lists using the Zustand store selectors
   const filteredWorkItems = getFilteredWorkItems(store);
   const selectedWorkItem = store.workItems.find(item => item.id === store.selectedWorkItemId) || null;
+
+  // If exactly one relationship is currently active in the Advisor panel,
+  // both hotkeys and the sidebar shortcuts skip straight past search and
+  // pre-fill it — re-searching someone you're already looking at is pure friction.
+  const activeContactForModals = selectedWorkItem ? {
+    id: selectedWorkItem.relationship.id,
+    name: selectedWorkItem.relationship.name,
+    company: selectedWorkItem.relationship.company,
+    position: null,
+    lastChannel: selectedWorkItem.relationship.suggestedChannel as any,
+  } : undefined;
+
+  // Global hotkeys: I = Import Interactions, R = Paste Reply.
+  // Disabled while typing in any input/textarea/select so normal typing
+  // (including inside these same modals) is never hijacked.
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      const tag = (document.activeElement?.tagName || '').toLowerCase();
+      const isEditable = tag === 'input' || tag === 'textarea' || tag === 'select' || (document.activeElement as HTMLElement)?.isContentEditable;
+      if (isEditable || e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === 'i' || e.key === 'I') {
+        e.preventDefault();
+        setShowImportInteractions(true);
+      } else if (e.key === 'r' || e.key === 'R') {
+        e.preventDefault();
+        setShowPasteReply(true);
+      }
+    }
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   // Counts of each category
   const getCategoryCount = (cat: RelationshipCategory) => {
@@ -137,6 +173,8 @@ export default function App() {
           }
         }}
         onAddRelationship={() => setShowAddModal(true)}
+        onPasteReply={() => setShowPasteReply(true)}
+        onImportInteractions={() => setShowImportInteractions(true)}
       />
 
       {/* MAIN LAYOUT WRAPPER (COLUMN 2 & COLUMN 3 CONTAINER) */}
@@ -628,6 +666,22 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* MODAL OVERLAY 3: PASTE REPLY (single message) */}
+      <LogInteractionModal
+        isOpen={showPasteReply}
+        onClose={() => setShowPasteReply(false)}
+        onLogged={() => store.initialize()}
+        initialContact={activeContactForModals}
+      />
+
+      {/* MODAL OVERLAY 4: IMPORT INTERACTIONS (bulk AI parse) */}
+      <ImportInteractionsModal
+        isOpen={showImportInteractions}
+        onClose={() => setShowImportInteractions(false)}
+        onImported={() => store.initialize()}
+        initialContact={activeContactForModals}
+      />
     </div>
   );
 }
