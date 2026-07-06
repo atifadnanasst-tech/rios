@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage } from '../types/index.ts';
-import { initialRelationships, initialWorkItems } from '../lib/placeholderData.ts';
+import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction } from '../lib/domain/relationships';
 
 interface RIOSState {
   relationships: Relationship[];
@@ -12,8 +12,11 @@ interface RIOSState {
   searchQuery: string;
   isGeneratingMessage: boolean;
   generatedMessage: string;
-  
+  isLoading: boolean;
+  loadError: string | null;
+
   // Actions
+  initialize: () => Promise<void>;
   selectWorkItem: (id: string | null) => void;
   toggleSelectWorkItemForBulk: (id: string) => void;
   selectAllWorkItems: (checked: boolean) => void;
@@ -34,17 +37,36 @@ interface RIOSState {
 }
 
 export const useStore = create<RIOSState>((set, get) => ({
-  relationships: initialRelationships,
-  workItems: initialWorkItems,
-  // Ahmed El-Mansy is selected by default in the Relationship Advisor panel
-  selectedWorkItemId: 'work-1',
-  // Ahmed El-Mansy, Sarah Patel, Ravi Menon checked by default to show 3 Selected in bulk bar (as in mockup)
-  selectedWorkItemIds: ['work-1', 'work-2', 'work-3'],
+  relationships: [],
+  workItems: [],
+  selectedWorkItemId: null,
+  selectedWorkItemIds: [],
   activeQueueTab: 'work-queue',
   activeCategoryFilter: 'all',
   searchQuery: '',
   isGeneratingMessage: false,
   generatedMessage: '',
+  isLoading: true,
+  loadError: null,
+
+  initialize: async () => {
+    set({ isLoading: true, loadError: null });
+    try {
+      const [relationships, workItems] = await Promise.all([
+        fetchTopRelationships(200),
+        fetchTodaysWorkItems(25),
+      ]);
+      set({
+        relationships,
+        workItems,
+        selectedWorkItemId: workItems[0]?.id ?? null,
+        isLoading: false,
+      });
+    } catch (err) {
+      console.error('Failed to load RIOS data from Supabase:', err);
+      set({ isLoading: false, loadError: err instanceof Error ? err.message : 'Failed to load data' });
+    }
+  },
 
   selectWorkItem: (id) => {
     set({ selectedWorkItemId: id, generatedMessage: '' });
@@ -88,12 +110,24 @@ export const useStore = create<RIOSState>((set, get) => ({
   },
 
   completeWorkItem: (id) => {
+    const item = get().workItems.find((w) => w.id === id);
+
+    // Optimistic update — UI responds immediately, doesn't wait on the network.
     set((state) => ({
       workItems: state.workItems.map((item) =>
         item.id === id ? { ...item, completed: true } : item
       ),
       selectedWorkItemIds: state.selectedWorkItemIds.filter(selectedId => selectedId !== id)
     }));
+
+    // Persist in the background. If this fails, the UI has already moved on —
+    // logged to console for now rather than rolling back state. Revisit this
+    // once completeWorkItem is used often enough to notice silent failures.
+    if (item) {
+      completeRelationshipAction(item.relationshipId, item.description).catch((err) => {
+        console.error('Failed to persist work item completion:', err);
+      });
+    }
   },
 
   snoozeWorkItem: (id) => {
@@ -243,9 +277,8 @@ export const getFilteredWorkItems = (state: ReturnType<typeof useStore.getState>
   return items;
 };
 
-// Bind the selector inside the store actions for simple state reading
-useStore.setState({
-  // Attach helper to access dynamically inside actions
-  ...useStore.getState(),
-  getFilteredWorkItems: () => getFilteredWorkItems(useStore.getState())
-} as any);
+// Fires once when this module first loads (i.e. on app startup), fetching
+// real data from Supabase and populating the store. No component needs to
+// call this — it just happens, the same way the old placeholder arrays
+// were just "there" immediately before.
+useStore.getState().initialize();

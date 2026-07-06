@@ -88,16 +88,20 @@ function buildWhyToday(row: RelationshipRow): string {
 // Since the real Work Item Engine doesn't exist yet, we build a
 // WorkItem-shaped object directly from a relationship that's due for
 // action. The day a real 'work_items' table has rows, swap this function
-// out in relationships.ts below — no UI code changes required.
+// out in relationships.ts — no UI code changes required.
 export function buildWorkItemFromRelationship(row: RelationshipRow): WorkItem {
   const relationship = mapRowToRelationship(row);
   return {
     id: `synthetic-${row.id}`,
+    relationshipId: row.id,
     relationship,
     category: mapOutreachStatusToCategory(row.outreach_status, row.next_touch_due),
     description: row.next_best_action || 'Review this relationship',
     priority: row.icp_tier === 'Tier_A' ? 'High' : row.icp_tier === 'Tier_B' ? 'Medium' : 'Low',
-    dueTime: row.next_touch_due || 'Today',
+    // The schema only tracks a due DATE, not a time of day, so this is a
+    // fixed placeholder — real per-item scheduling doesn't exist yet.
+    // Format matters: snoozeWorkItem() parses this as "H:MM AM/PM".
+    dueTime: '9:00 AM',
     channel: row.last_outreach_channel || 'LinkedIn',
     completed: false,
     starred: false,
