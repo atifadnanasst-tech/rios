@@ -100,10 +100,13 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
         </label>
       </div>
 
-      {/* 2. Portrait Avatar & Meta */}
-      <div className="flex items-center gap-3 shrink-0 min-w-[200px] max-w-[240px]">
+      {/* 2. Portrait Avatar & Meta — FIXED width (was min/max range, which
+          let each card's badge column start at a different X position
+          depending on name length; a single fixed width guarantees every
+          card's badge starts at the same spot). */}
+      <div className="flex items-center gap-3 shrink-0 w-[220px]">
         <Avatar src={rel.avatar} name={rel.name} size="md" status={rel.status} />
-        
+
         <div className="flex flex-col truncate">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-semibold text-zinc-100 hover:text-white transition-colors truncate">

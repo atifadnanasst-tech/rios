@@ -53,6 +53,26 @@ export default function App() {
   const filteredWorkItems = getFilteredWorkItems(store);
   const selectedWorkItem = store.workItems.find(item => item.id === store.selectedWorkItemId) || null;
 
+  // Pagination — the page controls used to be static decoration (hardcoded
+  // "1 2 3 ... 9" text with no click handlers) while the full list rendered
+  // unsliced underneath regardless of what was "selected." This makes it real.
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [showPerPageMenu, setShowPerPageMenu] = useState(false);
+
+  const totalPages = Math.max(1, Math.ceil(filteredWorkItems.length / itemsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const pageStart = filteredWorkItems.length === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+  const pageEnd = Math.min(safePage * itemsPerPage, filteredWorkItems.length);
+  const paginatedWorkItems = filteredWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+
+  // Reset to page 1 whenever the underlying filter/search/tab changes —
+  // otherwise you could land on a stale page number that's now empty or
+  // out of range for a newly-narrowed result set.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [store.activeQueueTab, store.activeCategoryFilter, store.searchQuery]);
+
   // If exactly one relationship is currently active in the Advisor panel,
   // both hotkeys and the sidebar shortcuts skip straight past search and
   // pre-fill it — re-searching someone you're already looking at is pure friction.
@@ -167,6 +187,28 @@ export default function App() {
     setNewRelLocation('');
     setShowAddModal(false);
   };
+
+  if (store.isLoading) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-rios-bg">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-2 border-rios-purple/30 border-t-rios-purple rounded-full animate-spin" />
+          <span className="text-xs text-zinc-500 font-medium">Loading your relationships...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (store.loadError) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-rios-bg">
+        <div className="flex flex-col items-center gap-2 text-center max-w-sm px-4">
+          <span className="text-sm text-red-400 font-semibold">Failed to load data</span>
+          <span className="text-xs text-zinc-500">{store.loadError}</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div id="rios-app-container" className="flex h-screen bg-rios-bg font-sans overflow-hidden select-none">
@@ -307,16 +349,15 @@ export default function App() {
             </div>
 
             {/* ACTIVE LIST OF MISSION CARDS */}
-            <div className="flex flex-col gap-3 min-h-[300px] relative">
+            <div className="flex flex-col gap-3 relative">
               <AnimatePresence initial={false} mode="popLayout">
-                {filteredWorkItems.length > 0 ? (
-                  filteredWorkItems.map((item) => (
+                {paginatedWorkItems.length > 0 ? (
+                  paginatedWorkItems.map((item) => (
                     <motion.div
                       key={item.id}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, x: -10 }}
-                      layout
                       transition={{ duration: 0.18 }}
                     >
                       <RelationshipMissionCard
@@ -333,7 +374,7 @@ export default function App() {
                     </motion.div>
                   ))
                 ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center select-none">
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-center select-none min-h-[300px]">
                     <Inbox className="w-10 h-10 text-zinc-700 mb-3" />
                     <span className="text-sm font-semibold text-zinc-400">No active work items</span>
                     <p className="text-xs text-zinc-500 max-w-xs mt-1 leading-normal">
@@ -347,38 +388,96 @@ export default function App() {
             {/* QUEUE PAGINATION TABLE FOOTER */}
             <div className="flex items-center justify-between pt-4 pb-8 select-none border-t border-white/[0.03]">
               <span className="text-[11px] font-mono text-rios-text-muted">
-                Showing 1 to {filteredWorkItems.length} of {filteredWorkItems.length} work items
+                Showing {pageStart} to {pageEnd} of {filteredWorkItems.length} work items
               </span>
 
               <div className="flex items-center gap-4">
                 {/* Numeric Pagination Buttons */}
                 <div className="flex items-center gap-1">
-                  <button className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+                  >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <button className="w-7 h-7 rounded-md bg-rios-purple text-white text-xs font-bold flex items-center justify-center">
-                    1
-                  </button>
-                  <button className="w-7 h-7 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center">
-                    2
-                  </button>
-                  <button className="w-7 h-7 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center">
-                    3
-                  </button>
-                  <span className="text-zinc-600 text-xs px-1">...</span>
-                  <button className="w-7 h-7 rounded-md hover:bg-white/5 text-zinc-400 hover:text-white text-xs font-semibold flex items-center justify-center">
-                    9
-                  </button>
-                  <button className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all">
+
+                  {(() => {
+                    // Show all page numbers if few enough; otherwise show
+                    // first, last, current ± 1, with ellipsis for gaps —
+                    // same pattern as the original static "1 2 3 ... 9" mockup,
+                    // just computed from the real page count now.
+                    const pages: (number | 'ellipsis')[] = [];
+                    if (totalPages <= 7) {
+                      for (let i = 1; i <= totalPages; i++) pages.push(i);
+                    } else {
+                      pages.push(1);
+                      if (safePage > 3) pages.push('ellipsis');
+                      for (let i = Math.max(2, safePage - 1); i <= Math.min(totalPages - 1, safePage + 1); i++) {
+                        pages.push(i);
+                      }
+                      if (safePage < totalPages - 2) pages.push('ellipsis');
+                      pages.push(totalPages);
+                    }
+                    return pages.map((p, i) =>
+                      p === 'ellipsis' ? (
+                        <span key={`ellipsis-${i}`} className="text-zinc-600 text-xs px-1">
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setCurrentPage(p)}
+                          className={`w-7 h-7 rounded-md text-xs font-semibold flex items-center justify-center transition-all ${
+                            p === safePage
+                              ? 'bg-rios-purple text-white font-bold'
+                              : 'hover:bg-white/5 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    );
+                  })()}
+
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
+                  >
                     <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
 
                 {/* Per page Select Option */}
-                <button className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs text-zinc-400 hover:text-white transition-colors">
-                  <span>10 / page</span>
-                  <ChevronDown className="w-3 h-3 text-zinc-500" />
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setShowPerPageMenu((v) => !v)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs text-zinc-400 hover:text-white transition-colors"
+                  >
+                    <span>{itemsPerPage} / page</span>
+                    <ChevronDown className="w-3 h-3 text-zinc-500" />
+                  </button>
+                  {showPerPageMenu && (
+                    <div className="absolute bottom-full right-0 mb-1 w-24 bg-zinc-900 border border-white/15 rounded-lg overflow-hidden shadow-xl z-10">
+                      {[10, 25, 50].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => {
+                            setItemsPerPage(n);
+                            setCurrentPage(1);
+                            setShowPerPageMenu(false);
+                          }}
+                          className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 transition-colors ${
+                            n === itemsPerPage ? 'text-white bg-zinc-800/60' : 'text-zinc-400'
+                          }`}
+                        >
+                          {n} / page
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
