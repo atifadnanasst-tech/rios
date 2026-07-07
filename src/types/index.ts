@@ -1,6 +1,24 @@
 export type RelationshipCategory = 'critical' | 'commitment' | 'commercial' | 'building' | 'nurture';
 
-export type RelationshipStage = 'Introduction' | 'Meeting' | 'Solution Alignment' | 'Trust Building' | 'Recognition' | 'Contract';
+export type RelationshipStage =
+  | 'Discovered'
+  | 'Connected'
+  | 'Recognized'
+  | 'Rapport'
+  | 'Trust'
+  | 'Business Context'
+  | 'Need Identified'
+  | 'Solution Alignment'
+  | 'Commercial Interest'
+  | 'Meeting'
+  | 'RFQ'
+  | 'Quotation'
+  | 'Negotiation'
+  | 'Purchase Order'
+  | 'Execution'
+  | 'Repeat Business'
+  | 'Strategic Partner'
+  | 'Advocate';
 
 export type PriorityLevel = 'High' | 'Medium' | 'Low';
 
@@ -11,6 +29,7 @@ export interface Relationship {
   name: string;
   avatar: string;
   company: string;
+  position: string;
   location: string;
   starred: boolean;
   score: number;

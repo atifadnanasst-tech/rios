@@ -45,7 +45,7 @@ export default function App() {
   const [newRelCompany, setNewRelCompany] = useState('');
   const [newRelLocation, setNewRelLocation] = useState('');
   const [newRelCategory, setNewRelCategory] = useState<RelationshipCategory>('building');
-  const [newRelStage, setNewRelStage] = useState<RelationshipStage>('Introduction');
+  const [newRelStage, setNewRelStage] = useState<RelationshipStage>('Discovered');
   const [newRelPriority, setNewRelPriority] = useState<PriorityLevel>('Medium');
   const [newRelChannel, setNewRelChannel] = useState<CommunicationChannel>('email');
 
@@ -152,6 +152,7 @@ export default function App() {
       name: newRelName,
       avatar: '', // Fallback initials
       company: newRelCompany,
+      position: '', // no dedicated input field in this form yet
       location: newRelLocation || 'Remote',
       starred: false,
       score: 60,
@@ -370,6 +371,8 @@ export default function App() {
                           store.toggleSelectWorkItemForBulk(item.id);
                         }}
                         onChangeStage={(stage) => store.updateStage(item.relationshipId, stage)}
+                        onToggleStar={() => store.toggleStarred(item.relationshipId)}
+                        onQuickSent={() => store.initialize()}
                       />
                     </motion.div>
                   ))
@@ -725,11 +728,11 @@ export default function App() {
                       onChange={(e) => setNewRelStage(e.target.value as RelationshipStage)}
                       className="w-full bg-zinc-900 border border-white/5 p-2 rounded-lg text-xs text-white focus:outline-none focus:border-rios-purple/40 cursor-pointer"
                     >
-                      <option value="Introduction">Introduction</option>
-                      <option value="Meeting">Meeting</option>
-                      <option value="Solution Alignment">Solution Alignment</option>
-                      <option value="Trust Building">Trust Building</option>
-                      <option value="Recognition">Recognition</option>
+                      <option value="Discovered">Discovered</option>
+                      <option value="Connected">Connected</option>
+                      <option value="Recognized">Recognized</option>
+                      <option value="Rapport">Rapport</option>
+                      <option value="Trust">Trust</option>
                     </select>
                   </div>
 

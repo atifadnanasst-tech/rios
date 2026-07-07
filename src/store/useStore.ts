@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage } from '../types/index.ts';
-import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction } from '../lib/domain/relationships';
+import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred } from '../lib/domain/relationships';
 
 interface RIOSState {
   relationships: Relationship[];
@@ -29,6 +29,7 @@ interface RIOSState {
   bulkSnooze: () => void;
   bulkChangeStage: (stage: RelationshipStage) => void;
   addRelationship: (relationship: Relationship) => void;
+  toggleStarred: (relationshipId: string) => void;
   addWorkItem: (workItem: WorkItem) => void;
 }
 
@@ -125,22 +126,16 @@ export const useStore = create<RIOSState>((set, get) => ({
   },
 
   snoozeWorkItem: (id) => {
-    set((state) => ({
-      workItems: state.workItems.map((item) => {
-        if (item.id === id) {
-          // Push scheduled action back
-          const [hours, minutesAndPeriod] = item.dueTime.split(':');
-          const [minutes, period] = minutesAndPeriod.split(' ');
-          let newHours = parseInt(hours) + 2;
-          if (newHours > 12) newHours = newHours - 12;
-          return {
-            ...item,
-            dueTime: `${String(newHours).padStart(2, '0')}:${minutes} ${period}`
-          };
-        }
-        return item;
-      })
-    }));
+    // NOTE: dueTime is now a real formatted date ("Today" / "Jul 10" / "No
+    // date set"), not the old fake "H:MM AM/PM" this used to parse and
+    // shift by 2 hours. That math no longer makes sense against a date
+    // string, and there's no raw parseable date on WorkItem to compute a
+    // real "+N days" from (only the display-formatted string). Rather than
+    // crash or silently corrupt the display, this is a deliberate no-op for
+    // now — real snooze (shifting relationships.next_touch_due in Supabase
+    // and reflecting it here) needs its own dedicated build, same as the
+    // channel-picker and archive features already flagged as separate work.
+    console.warn('Snooze does not yet persist a real date change — flagged as pending work.');
   },
 
   updateStage: (relationshipId, stage) => {
@@ -202,6 +197,28 @@ export const useStore = create<RIOSState>((set, get) => ({
     set((state) => ({
       relationships: [relationship, ...state.relationships]
     }));
+  },
+
+  toggleStarred: (relationshipId) => {
+    const rel = get().relationships.find((r) => r.id === relationshipId);
+    if (!rel) return;
+    const newValue = !rel.starred;
+
+    // Optimistic update — UI reflects the toggle immediately.
+    set((state) => ({
+      relationships: state.relationships.map((r) =>
+        r.id === relationshipId ? { ...r, starred: newValue } : r
+      ),
+      workItems: state.workItems.map((item) =>
+        item.relationshipId === relationshipId
+          ? { ...item, relationship: { ...item.relationship, starred: newValue } }
+          : item
+      ),
+    }));
+
+    setRelationshipStarred(relationshipId, newValue).catch((err) => {
+      console.error('Failed to persist starred toggle:', err);
+    });
   },
 
   addWorkItem: (workItem) => {

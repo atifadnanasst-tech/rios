@@ -10,13 +10,24 @@ interface StageIndicatorProps {
   id?: string;
 }
 
-export const STAGES: RelationshipStage[] = [
-  'Introduction',
-  'Meeting',
-  'Solution Alignment',
-  'Trust Building',
-  'Recognition'
+// The real lifecycle has 18 stages — too many to show as individual dots in
+// a compact card row without looking cluttered and mostly-empty (since most
+// relationships are still early). These 6 phases group them for a clean
+// glance-able progress view, while the exact stage stays fully precise
+// wherever it's shown as text (e.g. the "DISCOVERED" label on cards).
+export const PHASES: { label: string; stages: RelationshipStage[] }[] = [
+  { label: 'Discovery', stages: ['Discovered', 'Connected', 'Recognized'] },
+  { label: 'Relationship Building', stages: ['Rapport', 'Trust', 'Business Context'] },
+  { label: 'Needs & Solution', stages: ['Need Identified', 'Solution Alignment', 'Commercial Interest'] },
+  { label: 'Commercial Process', stages: ['Meeting', 'RFQ', 'Quotation', 'Negotiation'] },
+  { label: 'Execution', stages: ['Purchase Order', 'Execution'] },
+  { label: 'Advocacy', stages: ['Repeat Business', 'Strategic Partner', 'Advocate'] },
 ];
+
+function findPhaseIndex(stage: RelationshipStage): number {
+  const idx = PHASES.findIndex((p) => p.stages.includes(stage));
+  return idx === -1 ? 0 : idx; // fall back to first phase rather than break the whole indicator
+}
 
 export const StageIndicator: React.FC<StageIndicatorProps> = ({
   currentStage,
@@ -25,28 +36,29 @@ export const StageIndicator: React.FC<StageIndicatorProps> = ({
   className = '',
   id
 }) => {
-  const currentIndex = STAGES.indexOf(currentStage);
+  const currentPhaseIndex = findPhaseIndex(currentStage);
 
   return (
     <div
       id={id || 'stage-indicator-wrapper'}
       className={`flex flex-col gap-1 ${className}`}
     >
-      {/* Visual Dot Connector Row */}
+      {/* Visual Dot Connector Row — 6 phase-dots, each covering several
+          real stages. Hover any dot to see exactly which real stages it
+          groups, so the compact view still teaches the full lifecycle. */}
       <div className="flex items-center gap-1.5 py-1 select-none">
-        {STAGES.map((stage, idx) => {
-          const isActive = idx <= currentIndex;
-          const isCurrent = idx === currentIndex;
+        {PHASES.map((phase, idx) => {
+          const isActive = idx <= currentPhaseIndex;
+          const isCurrent = idx === currentPhaseIndex;
 
           return (
-            <React.Fragment key={stage}>
+            <React.Fragment key={phase.label}>
               {/* Dot */}
               <div
-                className={`relative flex items-center justify-center ${
+                className={`group relative flex items-center justify-center ${
                   interactive ? 'cursor-pointer' : ''
                 }`}
-                onClick={() => interactive && onChangeStage && onChangeStage(stage)}
-                title={stage}
+                onClick={() => interactive && onChangeStage && onChangeStage(phase.stages[0])}
               >
                 <motion.div
                   className={`w-2 h-2 rounded-full transition-colors duration-200 ${
@@ -60,21 +72,24 @@ export const StageIndicator: React.FC<StageIndicatorProps> = ({
                   transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                 />
 
-                {/* Micro tooltip if interactive */}
-                {interactive && (
-                  <span className="absolute -top-6 scale-0 group-hover:scale-100 transition-all duration-150 bg-zinc-900 border border-white/10 text-[10px] text-zinc-300 px-1.5 py-0.5 rounded pointer-events-none whitespace-nowrap">
-                    {stage}
-                  </span>
-                )}
+                {/* Teaching-moment tooltip: phase name + the real stages it covers */}
+                <div className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full w-max max-w-[180px] opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-20">
+                  <div className="bg-zinc-900 border border-white/10 rounded-lg px-2.5 py-1.5 shadow-xl text-center">
+                    <div className="text-[10px] font-semibold text-white">{phase.label}</div>
+                    <div className="text-[9px] text-zinc-400 mt-0.5 leading-snug">
+                      {phase.stages.join(' → ')}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Connecting Line (except last) */}
-              {idx < STAGES.length - 1 && (
+              {idx < PHASES.length - 1 && (
                 <div className="w-6 h-[2px] rounded-full overflow-hidden bg-zinc-800">
                   <motion.div
                     className="h-full bg-rios-purple/60"
                     initial={{ width: 0 }}
-                    animate={{ width: idx < currentIndex ? '100%' : '0%' }}
+                    animate={{ width: idx < currentPhaseIndex ? '100%' : '0%' }}
                     transition={{ duration: 0.3 }}
                   />
                 </div>

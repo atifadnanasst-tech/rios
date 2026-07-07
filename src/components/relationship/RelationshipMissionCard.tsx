@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Linkedin, MessageCircle, MoreHorizontal, Star } from 'lucide-react';
+import { Mail, Linkedin, MessageCircle, MoreHorizontal, Star, Loader2 } from 'lucide-react';
 import { WorkItem, RelationshipStage } from '../../types/index.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { PriorityBadge } from '../ui/PriorityBadge.tsx';
 import { StageIndicator } from '../ui/StageIndicator.tsx';
+import { sendAndLogMessage } from '../../lib/domain/sendMessage';
 
 interface RelationshipMissionCardProps {
   item: WorkItem;
@@ -13,6 +14,8 @@ interface RelationshipMissionCardProps {
   onSelect: () => void;
   onToggleCheck: (e: React.MouseEvent) => void;
   onChangeStage: (stage: RelationshipStage) => void;
+  onToggleStar: () => void;
+  onQuickSent?: () => void;
   id?: string;
 }
 
@@ -23,9 +26,30 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
   onSelect,
   onToggleCheck,
   onChangeStage,
+  onToggleStar,
+  onQuickSent,
   id
 }) => {
   const rel = item.relationship;
+  const [isSending, setIsSending] = useState(false);
+
+  async function handleQuickSend(e: React.MouseEvent) {
+    e.stopPropagation(); // don't also trigger card select/checkbox toggle
+    if (isSending) return;
+    setIsSending(true);
+    try {
+      const result = await sendAndLogMessage(rel.id, item.channel, item.description);
+      if (result.opened) {
+        onQuickSent?.();
+      } else {
+        alert(result.reason || 'Could not open this channel.');
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to send message');
+    } finally {
+      setIsSending(false);
+    }
+  }
 
   // Get communication channel icon
   const getChannelIcon = () => {
@@ -60,7 +84,10 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
   return (
     <motion.div
       id={id || `mission-card-${item.id}`}
-      onClick={onSelect}
+      onClick={(e) => {
+        onSelect();
+        onToggleCheck(e);
+      }}
       className={`flex items-center gap-4 px-4.5 py-4 border rounded-xl transition-all duration-200 cursor-pointer select-none font-sans relative ${
         isSelected
           ? 'bg-rios-card-hover border-rios-purple/40 shadow-[0_4px_16px_rgba(124,58,237,0.08)]'
@@ -112,10 +139,26 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
             <span className="text-xs font-semibold text-zinc-100 hover:text-white transition-colors truncate">
               {rel.name}
             </span>
-            {rel.starred && (
-              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-            )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleStar();
+              }}
+              className="shrink-0"
+              title={rel.starred ? 'Unstar this relationship' : 'Star this relationship'}
+            >
+              <Star
+                className={`w-3.5 h-3.5 transition-colors ${
+                  rel.starred ? 'fill-amber-400 text-amber-400' : 'text-zinc-700 hover:text-zinc-500'
+                }`}
+              />
+            </button>
           </div>
+          {rel.position && (
+            <span className="text-[10px] text-zinc-500 font-medium truncate leading-tight">
+              {rel.position}
+            </span>
+          )}
           <span className="text-[10px] text-rios-text-secondary mt-0.5 font-medium truncate leading-tight">
             {rel.company} <span className="text-zinc-800">|</span> {rel.location.split(' | ')[0]}
           </span>
@@ -147,7 +190,7 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
       </div>
 
       {/* 5. Priority & Scheduled Next Action Hour */}
-      <div className="shrink-0 flex flex-col items-end min-w-[80px]">
+      <div className="shrink-0 flex flex-col items-center min-w-[80px]">
         <PriorityBadge priority={item.priority} />
         <span className="text-[10px] text-rios-text-muted font-mono font-medium mt-1 leading-none">
           {item.dueTime}
@@ -158,11 +201,12 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
       <div className="flex items-center gap-2 shrink-0 ml-2" onClick={(e) => e.stopPropagation()}>
         {/* Quick icon button */}
         <button
-          className="p-1.5 rounded-lg bg-zinc-950/40 border border-white/5 hover:border-white/10 hover:bg-zinc-900 transition-all cursor-pointer"
-          title={`Generate ${item.channel}`}
-          onClick={onSelect}
+          className="p-1.5 rounded-lg bg-zinc-950/40 border border-white/5 hover:border-white/10 hover:bg-zinc-900 transition-all cursor-pointer disabled:opacity-50"
+          title={`Send via ${item.channel === 'linkedin' ? 'LinkedIn' : item.channel === 'whatsapp' ? 'WhatsApp' : item.channel === 'email' ? 'Email' : 'Phone'} — "${item.description}"`}
+          onClick={handleQuickSend}
+          disabled={isSending}
         >
-          {getChannelIcon()}
+          {isSending ? <Loader2 className="w-4 h-4 text-zinc-400 animate-spin" /> : getChannelIcon()}
         </button>
 
         {/* Meatball menu */}

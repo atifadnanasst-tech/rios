@@ -29,6 +29,7 @@ export type RelationshipRow = {
   next_touch_due: string | null;
   outreach_status: string;
   touch_number: number;
+  starred: boolean;
   contacts: {
     first_name: string;
     last_name: string | null;
@@ -85,7 +86,7 @@ export function mapRowToRelationship(row: RelationshipRow): Relationship {
     location: row.contacts?.country || 'Unknown',
     score: row.icp_score,
     status: mapTemperatureToStatus(row.relationship_temperature),
-    starred: false, // no schema equivalent yet — always false until a real "starred" concept exists
+    starred: row.starred,
     commercialGoal: row.goal,
     currentStage: row.stage,
     tags: [row.persona, row.company_type, row.icp_tier].filter(Boolean) as string[],
@@ -107,6 +108,21 @@ function buildWhyToday(row: RelationshipRow): string {
   return 'Due for periodic outreach.';
 }
 
+// Real due date, no fake time-of-day. Shows "Today" when it matches the
+// current date, a short formatted date otherwise, or an honest "No date
+// set" if next_touch_due is genuinely empty — never invents a value.
+function formatDueDate(dateStr: string | null): string {
+  if (!dateStr) return 'No date set';
+  const due = new Date(dateStr);
+  const today = new Date();
+  const isToday =
+    due.getFullYear() === today.getFullYear() &&
+    due.getMonth() === today.getMonth() &&
+    due.getDate() === today.getDate();
+  if (isToday) return 'Today';
+  return due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // Since the real Work Item Engine doesn't exist yet, we build a
 // WorkItem-shaped object directly from a relationship that's due for
 // action. The day a real 'work_items' table has rows, swap this function
@@ -123,7 +139,10 @@ export function buildWorkItemFromRelationship(row: RelationshipRow): WorkItem {
     // The schema only tracks a due DATE, not a time of day, so this is a
     // fixed placeholder — real per-item scheduling doesn't exist yet.
     // Format matters: snoozeWorkItem() parses this as "H:MM AM/PM".
-    dueTime: '9:00 AM',
+    // Real due date, not a fake time-of-day — the schema only ever tracked
+    // a date, never a time. Labeled "Today" when it matches, otherwise a
+    // short formatted date; "No date set" if next_touch_due is genuinely empty.
+    dueTime: formatDueDate(row.next_touch_due),
     channel: mapDbChannelToFrontend(row.last_outreach_channel),
     completed: false,
     starred: false,

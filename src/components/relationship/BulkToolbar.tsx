@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, Clock, Check, Layers, ChevronDown, X } from 'lucide-react';
 import { RelationshipStage } from '../../types/index.ts';
+import { PHASES } from '../ui/StageIndicator.tsx';
 
 interface BulkToolbarProps {
   selectedCount: number;
@@ -24,14 +25,10 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
 }) => {
   const [showStageDropdown, setShowStageDropdown] = useState(false);
 
-  const stages: RelationshipStage[] = [
-    'Introduction',
-    'Meeting',
-    'Solution Alignment',
-    'Trust Building',
-    'Recognition',
-    'Contract'
-  ];
+  // Reuses the same 6-phase grouping shown in StageIndicator (cards, Advisor
+  // panel) rather than a separate hardcoded list — bulk-changing dozens of
+  // relationships to one of 18 precise stages would be unwieldy anyway;
+  // picking a phase sets them to that phase's entry stage.
 
   return (
     <AnimatePresence>
@@ -98,18 +95,19 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
                     initial={{ opacity: 0, y: -10, scale: 0.95 }}
                     animate={{ opacity: 1, y: -230, scale: 1 }} // Slide up
                     exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                    className="absolute bottom-10 left-0 w-48 bg-zinc-950 border border-white/10 rounded-xl py-1.5 shadow-2xl z-50 flex flex-col"
+                    className="absolute bottom-10 left-0 w-56 bg-zinc-950 border border-white/10 rounded-xl py-1.5 shadow-2xl z-50 flex flex-col"
                   >
-                    {stages.map((stage) => (
+                    {PHASES.map((phase) => (
                       <button
-                        key={stage}
+                        key={phase.label}
                         onClick={() => {
-                          onChangeStage(stage);
+                          onChangeStage(phase.stages[0]);
                           setShowStageDropdown(false);
                         }}
+                        title={phase.stages.join(' → ')}
                         className="px-3.5 py-2 text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
                       >
-                        {stage}
+                        {phase.label}
                       </button>
                     ))}
                   </motion.div>

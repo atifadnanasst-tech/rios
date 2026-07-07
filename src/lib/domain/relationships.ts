@@ -7,7 +7,7 @@ const RELATIONSHIP_SELECT = `
   id, company, position, goal, stage, icp_score, icp_tier,
   relationship_temperature, next_best_action, last_outreach_channel,
   classification_confidence, persona, company_type, next_touch_due,
-  outreach_status, touch_number,
+  outreach_status, touch_number, starred,
   contacts ( first_name, last_name, country )
 `;
 
@@ -84,4 +84,12 @@ export async function completeRelationshipAction(relationshipId: string, actionT
   // touch_number increment intentionally left out of v1 — needs current
   // value read first (or a Postgres function) to increment safely.
   // Add this once you're actually using this action regularly.
+}
+
+// Manual override of the algorithm — surfaces a relationship regardless of
+// its computed score/tier, for reasons only the owner knows (a personal
+// connection, a strategic priority the data can't see).
+export async function setRelationshipStarred(relationshipId: string, starred: boolean): Promise<void> {
+  const { error } = await supabase.from('relationships').update({ starred }).eq('id', relationshipId);
+  if (error) throw new Error(`Failed to update starred: ${error.message}`);
 }
