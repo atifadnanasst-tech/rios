@@ -76,3 +76,10 @@ html, body {
   background-color: rgba(124, 58, 237, 0.3);
   color: #FFFFFF;
 }
+
+/* Native date inputs default to a light-themed picker/icon, which is
+   nearly invisible against this dark UI unless explicitly told the
+   surrounding scheme is dark. */
+input[type="date"] {
+  color-scheme: dark;
+}

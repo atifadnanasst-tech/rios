@@ -28,6 +28,7 @@ The database must always expand, never contract.
 -   targeting_rules
 -   targeting_runs
 -   work_items
+-   knowledge_documents
 -   campaigns
 -   templates
 -   ai_profiles

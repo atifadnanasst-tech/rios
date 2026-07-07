@@ -1,13 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Copy, Check, Sparkles, Send, ArrowRight, RefreshCw, X } from 'lucide-react';
+import { Copy, Check, Sparkles, Send, ChevronUp, X, Mail, Linkedin, MessageCircle, Phone } from 'lucide-react';
+
+export type ComposerChannel = 'email' | 'linkedin' | 'whatsapp' | 'phone';
+
+const CHANNEL_META: Record<ComposerChannel, { label: string; icon: React.ElementType }> = {
+  email: { label: 'Email', icon: Mail },
+  linkedin: { label: 'LinkedIn', icon: Linkedin },
+  whatsapp: { label: 'WhatsApp', icon: MessageCircle },
+  phone: { label: 'Phone', icon: Phone },
+};
 
 interface ComposerProps {
   initialValue: string;
   isGenerating: boolean;
   onSave?: (text: string) => void;
   onClose?: () => void;
-  onSend?: (text: string) => void;
+  // Channel-aware send — only shown as a split-button-with-dropdown when
+  // `defaultChannel` is provided. Falls back to a plain Send button
+  // otherwise, so existing/future non-channel usages of Composer are unaffected.
+  onSend?: (text: string, channel?: ComposerChannel) => void;
+  defaultChannel?: ComposerChannel;
   id?: string;
 }
 
@@ -17,14 +30,34 @@ export const Composer: React.FC<ComposerProps> = ({
   onSave,
   onClose,
   onSend,
+  defaultChannel,
   id
 }) => {
   const [text, setText] = useState(initialValue);
   const [copied, setCopied] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState<ComposerChannel | undefined>(defaultChannel);
+  const [showChannelMenu, setShowChannelMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setText(initialValue);
   }, [initialValue]);
+
+  // Keep in sync if the underlying default channel changes (e.g. switching
+  // to a relationship whose conversation is on a different channel).
+  useEffect(() => {
+    setSelectedChannel(defaultChannel);
+  }, [defaultChannel]);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowChannelMenu(false);
+      }
+    }
+    if (showChannelMenu) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showChannelMenu]);
 
   const handleCopy = async () => {
     try {
@@ -35,6 +68,9 @@ export const Composer: React.FC<ComposerProps> = ({
       console.error('Failed to copy', err);
     }
   };
+
+  const isChannelAware = !!defaultChannel;
+  const ActiveIcon = selectedChannel ? CHANNEL_META[selectedChannel].icon : Send;
 
   return (
     <div
@@ -129,13 +165,66 @@ export const Composer: React.FC<ComposerProps> = ({
             )}
           </button>
 
-          <button
-            onClick={() => onSend?.(text)}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] bg-rios-purple text-white hover:bg-opacity-90 text-xs font-semibold transition-all duration-150 shadow-[0_2px_8px_rgba(124,58,237,0.3)]"
-          >
-            <span>Send Message</span>
-            <Send className="w-3.5 h-3.5" />
-          </button>
+          {isChannelAware ? (
+            <div ref={menuRef} className="relative flex">
+              {/* Channel options menu — opens upward since this sits near the bottom of the panel */}
+              <AnimatePresence>
+                {showChannelMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 6 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-full right-0 mb-1.5 w-40 bg-zinc-900 border border-white/15 rounded-lg overflow-hidden shadow-xl z-20"
+                  >
+                    {(Object.keys(CHANNEL_META) as ComposerChannel[]).map((ch) => {
+                      const Meta = CHANNEL_META[ch];
+                      const Icon = Meta.icon;
+                      return (
+                        <button
+                          key={ch}
+                          onClick={() => {
+                            setSelectedChannel(ch);
+                            setShowChannelMenu(false);
+                            onSend?.(text, ch);
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-zinc-800 transition-colors ${
+                            selectedChannel === ch ? 'text-white bg-zinc-800/60' : 'text-zinc-300'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          <span>Send {Meta.label}</span>
+                        </button>
+                      );
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <button
+                onClick={() => onSend?.(text, selectedChannel)}
+                className="flex items-center gap-1.5 pl-3.5 pr-2.5 py-1.5 rounded-l-[8px] bg-rios-purple text-white hover:bg-opacity-90 text-xs font-semibold transition-all duration-150 shadow-[0_2px_8px_rgba(124,58,237,0.3)]"
+              >
+                <ActiveIcon className="w-3.5 h-3.5" />
+                <span>Send {selectedChannel ? CHANNEL_META[selectedChannel].label : 'Message'}</span>
+              </button>
+              <button
+                onClick={() => setShowChannelMenu((v) => !v)}
+                className="flex items-center px-2 py-1.5 rounded-r-[8px] bg-rios-purple text-white hover:bg-opacity-90 border-l border-white/20 transition-all duration-150 shadow-[0_2px_8px_rgba(124,58,237,0.3)]"
+                title="Choose a different channel"
+              >
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => onSend?.(text)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] bg-rios-purple text-white hover:bg-opacity-90 text-xs font-semibold transition-all duration-150 shadow-[0_2px_8px_rgba(124,58,237,0.3)]"
+            >
+              <span>Send Message</span>
+              <Send className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
     </div>

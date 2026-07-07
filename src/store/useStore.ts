@@ -10,8 +10,6 @@ interface RIOSState {
   activeQueueTab: 'work-queue' | 'all' | 'starred' | 'commitments';
   activeCategoryFilter: 'all' | RelationshipCategory;
   searchQuery: string;
-  isGeneratingMessage: boolean;
-  generatedMessage: string;
   isLoading: boolean;
   loadError: string | null;
 
@@ -30,8 +28,6 @@ interface RIOSState {
   bulkComplete: () => void;
   bulkSnooze: () => void;
   bulkChangeStage: (stage: RelationshipStage) => void;
-  generateAIMessage: (workItemId: string) => Promise<void>;
-  clearGeneratedMessage: () => void;
   addRelationship: (relationship: Relationship) => void;
   addWorkItem: (workItem: WorkItem) => void;
 }
@@ -44,8 +40,6 @@ export const useStore = create<RIOSState>((set, get) => ({
   activeQueueTab: 'work-queue',
   activeCategoryFilter: 'all',
   searchQuery: '',
-  isGeneratingMessage: false,
-  generatedMessage: '',
   isLoading: true,
   loadError: null,
 
@@ -69,7 +63,7 @@ export const useStore = create<RIOSState>((set, get) => ({
   },
 
   selectWorkItem: (id) => {
-    set({ selectedWorkItemId: id, generatedMessage: '' });
+    set({ selectedWorkItemId: id });
   },
 
   toggleSelectWorkItemForBulk: (id) => {
@@ -202,35 +196,6 @@ export const useStore = create<RIOSState>((set, get) => ({
       ),
       selectedWorkItemIds: []
     }));
-  },
-
-  generateAIMessage: async (workItemId) => {
-    const workItem = get().workItems.find(item => item.id === workItemId);
-    if (!workItem) return;
-    
-    set({ isGeneratingMessage: true, generatedMessage: '' });
-    
-    // Simulate premium AI generation delay as defined in RIG (500ms AI thinking)
-    await new Promise(resolve => setTimeout(resolve, 600));
-
-    const rel = workItem.relationship;
-    let draft = '';
-    
-    if (workItem.category === 'commitment') {
-      draft = `Subject: Quotation: Metro Line 6 Project - Orascom Construction\n\nDear Ahmed,\n\nI hope you are having a productive week.\n\nAs promised yesterday, I have finalized our comprehensive pricing proposal and technical outline for the Metro Line 6 project.\n\nYou'll find the detailed quotation along with our customized case study on previous high-capacity urban transit implementations attached below.\n\nLet's schedule a brief 10-minute call tomorrow afternoon to run through the specific cost-optimizations we've integrated.\n\nBest regards,\nAtif A.\nOwner, RIOS`;
-    } else if (workItem.category === 'commercial') {
-      draft = `Hi ${rel.name.split(' ')[0]},\n\nHope all is well. I wanted to follow up on the proposal we discussed last week for ${rel.company}.\n\nWe have received feedback from our engineering team that we can expedite the delivery schedule by two weeks to align with your Q3 milestones.\n\nLet me know if you have 5 minutes for a quick alignment on LinkedIn or a brief call today.\n\nBest,\nAtif`;
-    } else if (workItem.category === 'building') {
-      draft = `Hi ${rel.name.split(' ')[0]},\n\nIt was great chatting about your contract milestones during our last session. I've compiled the draft clauses our legal counsel recommended to resolve the IP ownership questions you raised.\n\nWould love to get your thoughts before we finalize. Let me know if we can review this today.\n\nBest regards,\nAtif`;
-    } else {
-      draft = `Hi ${rel.name.split(' ')[0]},\n\nJust came across JLL's regional real-estate expansion report. Incredible insights on the Dubai Marina developments!\n\nIt reminded me of your team's objective to expand the hospitality portfolio. Let's catch up sometime soon for a coffee.\n\nWarmly,\nAtif`;
-    }
-
-    set({ isGeneratingMessage: false, generatedMessage: draft });
-  },
-
-  clearGeneratedMessage: () => {
-    set({ generatedMessage: '' });
   },
 
   addRelationship: (relationship) => {

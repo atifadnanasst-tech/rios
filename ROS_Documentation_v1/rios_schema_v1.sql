@@ -478,3 +478,77 @@ from organisations where name = 'BW Technologies';
 -- Conversation_Log rows -> one relationship_events row per turn
 --                       (event_type='message_sent'/'message_received', source='import')
 -- ============================================================
+
+-- ============================================================
+-- KNOWLEDGE CENTER — plain-text markdown documents, v1
+-- ============================================================
+-- Metadata (category/tags/visibility) is for UI filtering and manual
+-- document selection today, NOT automatic relevance matching — that's
+-- deferred to a later version using pgvector, once document volume
+-- actually requires it. See design conversation for why.
+--
+-- 'restricted' visibility means "don't show in a future browsing UI to
+-- e.g. a junior team member" — it does NOT mean "hide from the AI."
+-- The Reply Assistant automatically includes ALL active documents
+-- regardless of visibility, since the owner needs the AI to actually
+-- know real margin/pricing logic to write commercially sound replies.
+
+create type knowledge_visibility as enum ('organization', 'restricted');
+
+create table knowledge_documents (
+  id uuid primary key default gen_random_uuid(),
+  organisation_id uuid not null references organisations(id) on delete cascade,
+  title text not null,
+  category text not null,        -- e.g. 'company', 'product', 'sales', 'commercial', 'voice'
+  content text not null,          -- the full markdown body, stored as plain text
+  tags text[] not null default '{}',
+  visibility knowledge_visibility not null default 'organization',
+  is_active boolean not null default true,  -- retire a doc from AI use without deleting it
+  version int not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  unique (organisation_id, title)
+);
+
+create index idx_knowledge_documents_org on knowledge_documents(organisation_id);
+create index idx_knowledge_documents_category on knowledge_documents(category);
+create index idx_knowledge_documents_active on knowledge_documents(is_active);
+
+create trigger trg_knowledge_documents_updated_at
+  before update on knowledge_documents
+  for each row execute function set_updated_at();
+
+grant select on knowledge_documents to anon;
+
+create policy "dev_anon_read_knowledge_documents" on knowledge_documents
+  for select using (is_active = true);
+
+-- ============================================================
+-- DEV-MODE ACCESS GRANTS — single-tenant, non-public app today.
+-- Consolidates every grant/policy applied ad hoc across the project so
+-- this file is genuinely the single source of truth, not just for table
+-- shape but for what's actually reachable via the anon/publishable key.
+-- Revisit before any public deployment — see design conversation.
+-- ============================================================
+
+grant select on contacts to anon;
+create policy "dev_anon_read_contacts" on contacts for select using (true);
+
+grant select, update on relationships to anon;
+create policy "dev_anon_read_relationships" on relationships for select using (true);
+create policy "dev_anon_update_relationships" on relationships for update using (true);
+
+grant select, insert, update, delete on relationship_events to anon;
+create policy "dev_anon_read_relationship_events" on relationship_events for select using (true);
+create policy "dev_anon_insert_relationship_events" on relationship_events for insert with check (true);
+create policy "dev_anon_update_relationship_events" on relationship_events for update using (true);
+create policy "dev_anon_delete_relationship_events" on relationship_events for delete using (true);
+
+grant select on work_items to anon;
+create policy "dev_anon_read_work_items" on work_items for select using (true);
+
+grant select, insert on relationship_memory to anon;
+create policy "dev_anon_read_relationship_memory" on relationship_memory for select using (true);
+create policy "dev_anon_insert_relationship_memory" on relationship_memory for insert with check (true);
+-- ============================================================

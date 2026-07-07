@@ -307,7 +307,7 @@ export default function App() {
             </div>
 
             {/* ACTIVE LIST OF MISSION CARDS */}
-            <div className="flex flex-col gap-3 min-h-[300px]">
+            <div className="flex flex-col gap-3 min-h-[300px] relative">
               <AnimatePresence initial={false} mode="popLayout">
                 {filteredWorkItems.length > 0 ? (
                   filteredWorkItems.map((item) => (
@@ -402,10 +402,6 @@ export default function App() {
               alert('Work item scheduled action snoozed for 2 hours.');
             }}
             onUpdateStage={(relId, stage) => store.updateStage(relId, stage)}
-            onGenerateMessage={(id) => store.generateAIMessage(id)}
-            isGeneratingMessage={store.isGeneratingMessage}
-            generatedMessage={store.generatedMessage}
-            onClearGenerated={() => store.clearGeneratedMessage()}
           />
         </div>
       </div>
@@ -509,14 +505,10 @@ export default function App() {
                   Close Briefing
                 </button>
                 <button
-                  onClick={() => {
-                    setShowBriefing(false);
-                    store.selectWorkItem('work-1');
-                    store.generateAIMessage('work-1');
-                  }}
+                  onClick={() => setShowBriefing(false)}
                   className="px-4 py-2 rounded-lg bg-rios-purple hover:bg-opacity-90 text-xs font-bold text-white transition-colors cursor-pointer"
                 >
-                  Start Mission #1
+                  Got It
                 </button>
               </div>
             </motion.div>

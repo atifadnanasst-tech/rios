@@ -307,6 +307,14 @@ export const ImportInteractionsModal: React.FC<ImportInteractionsModalProps> = (
                     <div className="text-sm text-zinc-300 leading-relaxed">{meta.summary}</div>
                   </div>
 
+                  {messages.length === 0 && (
+                    <div className="bg-amber-950/20 border border-amber-500/20 rounded-lg px-3 py-2.5 text-[11px] text-amber-300 leading-relaxed">
+                      Import Interactions is built for multi-message conversations with clear structure
+                      (email threads, chat exports, back-and-forth history). A single unlabeled line
+                      often can't be parsed this way — for logging one message, use <strong>Paste Reply</strong> instead.
+                    </div>
+                  )}
+
                   <div>
                     <div className="text-xs text-zinc-400 mb-1.5">
                       {messages.length} message{messages.length !== 1 ? 's' : ''} — edit anything that looks wrong before saving

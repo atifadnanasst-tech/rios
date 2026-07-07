@@ -38,6 +38,28 @@ export type RelationshipRow = {
 
 const CONFIDENCE_TO_PERCENT: Record<string, number> = { Low: 50, Medium: 75, High: 90 };
 
+// The database stores channel values capitalized ('Email', 'LinkedIn',
+// 'WhatsApp', 'Phone') per the contact_channel enum, but the frontend's
+// CommunicationChannel type uses lowercase ('email', 'linkedin', etc).
+// Passing the DB value straight through silently broke channel-based
+// logic everywhere it's compared (Send Message, channel switching) since
+// none of the lowercase comparisons ever matched — found via a real bug,
+// not a hypothetical one.
+function mapDbChannelToFrontend(dbChannel: string | null): 'email' | 'linkedin' | 'whatsapp' | 'phone' {
+  switch (dbChannel) {
+    case 'Email':
+      return 'email';
+    case 'LinkedIn':
+      return 'linkedin';
+    case 'WhatsApp':
+      return 'whatsapp';
+    case 'Phone':
+      return 'phone';
+    default:
+      return 'linkedin';
+  }
+}
+
 // The UI's mock data used a 4-value status; relationship_temperature only
 // has 3 real values, so 'Stable' from the mock never occurs from real data
 // — that's expected, not a bug.
@@ -70,7 +92,7 @@ export function mapRowToRelationship(row: RelationshipRow): Relationship {
     whyToday: buildWhyToday(row),
     nextBestAction: row.next_best_action || 'No specific action recommended yet.',
     aiConfidence: row.classification_confidence ? CONFIDENCE_TO_PERCENT[row.classification_confidence] : 50,
-    suggestedChannel: row.last_outreach_channel || 'LinkedIn',
+    suggestedChannel: mapDbChannelToFrontend(row.last_outreach_channel),
   } as Relationship;
 }
 
@@ -102,7 +124,7 @@ export function buildWorkItemFromRelationship(row: RelationshipRow): WorkItem {
     // fixed placeholder — real per-item scheduling doesn't exist yet.
     // Format matters: snoozeWorkItem() parses this as "H:MM AM/PM".
     dueTime: '9:00 AM',
-    channel: row.last_outreach_channel || 'LinkedIn',
+    channel: mapDbChannelToFrontend(row.last_outreach_channel),
     completed: false,
     starred: false,
   } as WorkItem;
