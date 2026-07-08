@@ -571,4 +571,39 @@ create table ai_feedback (
 grant select, insert on ai_feedback to anon;
 create policy "dev_anon_read_ai_feedback" on ai_feedback for select using (true);
 create policy "dev_anon_insert_ai_feedback" on ai_feedback for insert with check (true);
+
+-- ============================================================
+-- DAILY RELATIONSHIP SWEEP — one-time, project-wide cron setup.
+-- Registered ONCE, ever, for the whole project — NOT per-organisation.
+-- The sweep function itself loops through every row in `organisations`
+-- and gates per-org based on daily_sweep_hour_utc/daily_sweep_last_run_date,
+-- so a newly onboarded organisation is picked up automatically the very
+-- next time this already-running schedule fires — no new SQL, no code
+-- change, no per-org cron registration ever needed.
+-- ============================================================
+
+alter table organisations add column daily_new_touch_cap int not null default 50;
+alter table organisations add column daily_sweep_hour_utc int not null default 7;
+alter table organisations add column daily_sweep_last_run_date date;
+
+alter table relationships add column excluded_until date;
+alter table relationships add column exclusion_reason text;
+alter table relationships add column archived_at timestamptz;
+
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+-- Run this once per environment (dev, staging, prod each need their own
+-- registration, since cron.job lives inside each database individually).
+-- select cron.schedule(
+--   'daily-relationship-sweep-check',
+--   '*/15 * * * *',
+--   $$
+--   select net.http_post(
+--     url:='https://ovnmovpchupuqstxsxrs.supabase.co/functions/v1/daily-relationship-sweep',
+--     headers:='{"Authorization": "Bearer YOUR_SERVICE_ROLE_KEY", "Content-Type": "application/json"}'::jsonb,
+--     body:='{}'::jsonb
+--   );
+--   $$
+-- );
 -- ============================================================

@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
     try {
       const { data: orgs, error: orgsError } = await supabase
         .from('organisations')
-        .select('id, daily_new_touch_cap');
+        .select('id, daily_new_touch_cap, daily_sweep_hour_utc, daily_sweep_last_run_date');
       if (orgsError) throw new Error(`Failed to load organisations: ${orgsError.message}`);
 
       console.log(`Sweep starting for ${today} — ${(orgs || []).length} organisation(s).`);
@@ -108,6 +108,19 @@ Deno.serve(async (req) => {
       let totalFailed = 0;
 
       for (const org of orgs || []) {
+        // This function is meant to be scheduled frequently (e.g. every
+        // 15 minutes) via pg_cron — the FIXED schedule never needs to
+        // change. What actually varies per organisation is this gate:
+        // only do real work once, at the configured hour, once per day.
+        // Changing daily_sweep_hour_utc later (e.g. from a future
+        // Settings screen) takes effect immediately, with zero need to
+        // ever touch the pg_cron schedule itself again.
+        const currentUtcHour = new Date().getUTCHours();
+        const alreadyRanToday = org.daily_sweep_last_run_date === today;
+        if (currentUtcHour !== org.daily_sweep_hour_utc || alreadyRanToday) {
+          continue;
+        }
+
         const baseFilter = supabase
           .from('relationships')
           .select('id, relationship_temperature, last_reply_date, last_outreach_date, icp_score, touch_number, next_touch_due, archived_at, excluded_until, outreach_status')
@@ -145,6 +158,14 @@ Deno.serve(async (req) => {
         const freshResult = await processBatched('new-touches', (freshRaw || []).map((r) => r.id));
         totalNewTouchesOk += freshResult.ok;
         totalFailed += freshResult.failed;
+
+        // Mark this org as done for today — otherwise the next 15-minute
+        // check, still within the same matching hour, would run it again.
+        const { error: markError } = await supabase
+          .from('organisations')
+          .update({ daily_sweep_last_run_date: today })
+          .eq('id', org.id);
+        if (markError) console.error(`Failed to mark org ${org.id} as swept today:`, markError.message);
       }
 
       console.log(
