@@ -64,7 +64,7 @@ function mapDbChannelToFrontend(dbChannel: string | null): 'email' | 'linkedin' 
 // The UI's mock data used a 4-value status; relationship_temperature only
 // has 3 real values, so 'Stable' from the mock never occurs from real data
 // — that's expected, not a bug.
-function mapTemperatureToStatus(temp: RelationshipRow['relationship_temperature']): Relationship['status'] {
+export function mapTemperatureToStatus(temp: RelationshipRow['relationship_temperature']): Relationship['status'] {
   return temp; // 'Cold' | 'Warm' | 'Hot' — same words, direct pass-through
 }
 

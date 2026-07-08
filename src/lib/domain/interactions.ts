@@ -1,4 +1,6 @@
 import { supabase } from '../supabaseClient';
+import { computeNextTemperature } from './temperature';
+import { triggerIntelligenceRecompute } from './intelligenceRecompute';
 
 export type LogInteractionInput = {
   relationshipId: string;
@@ -6,9 +8,8 @@ export type LogInteractionInput = {
   channel: 'LinkedIn' | 'Email' | 'WhatsApp' | 'Phone';
   messageDate: string; // YYYY-MM-DD
   messageText: string;
+  onRecomputed?: () => void; // fires once the background AI correction actually lands, for refreshing an open panel
 };
-
-const TEMPERATURE_ORDER: Array<'Cold' | 'Warm' | 'Hot'> = ['Cold', 'Warm', 'Hot'];
 
 // Deterministic v1: no AI classification of sentiment here. A received
 // message advances temperature one step and speeds up the next touch;
@@ -26,7 +27,7 @@ function addDays(dateStr: string, days: number): string {
 }
 
 export async function logInteraction(input: LogInteractionInput): Promise<void> {
-  const { relationshipId, direction, channel, messageDate, messageText } = input;
+  const { relationshipId, direction, channel, messageDate, messageText, onRecomputed } = input;
 
   // 1. Always log the raw event — this is the permanent, append-only record.
   const { error: eventError } = await supabase.from('relationship_events').insert({
@@ -61,8 +62,7 @@ export async function logInteraction(input: LogInteractionInput): Promise<void> 
       .eq('id', relationshipId);
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);
   } else {
-    const currentTempIndex = TEMPERATURE_ORDER.indexOf(current.relationship_temperature as any);
-    const nextTemp = TEMPERATURE_ORDER[Math.min(currentTempIndex + 1, TEMPERATURE_ORDER.length - 1)];
+    const nextTemp = computeNextTemperature(current.relationship_temperature as any, null);
 
     const { error } = await supabase
       .from('relationships')
@@ -74,5 +74,15 @@ export async function logInteraction(input: LogInteractionInput): Promise<void> 
       })
       .eq('id', relationshipId);
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);
+
+    // The deterministic temperature step-up above is a safe immediate
+    // fallback, but it can't read what the message actually said (that's
+    // exactly what caused a real "do not contact" message to stay
+    // classified as warming engagement). The recompute engine reads the
+    // real content and corrects this shortly after, in the background —
+    // onRecomputed fires once that correction actually lands, so an open
+    // panel can refresh and show the corrected value instead of the stale
+    // optimistic one.
+    triggerIntelligenceRecompute(relationshipId, 'reply').then(() => onRecomputed?.());
   }
 }

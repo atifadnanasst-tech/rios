@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage } from '../types/index.ts';
-import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred } from '../lib/domain/relationships';
+import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred, updateRelationshipStage } from '../lib/domain/relationships';
+import { mapTemperatureToStatus } from '../lib/domain/mappers';
+import { supabase } from '../lib/supabaseClient';
 
 interface RIOSState {
   relationships: Relationship[];
@@ -30,6 +32,7 @@ interface RIOSState {
   bulkChangeStage: (stage: RelationshipStage) => void;
   addRelationship: (relationship: Relationship) => void;
   toggleStarred: (relationshipId: string) => void;
+  refreshRelationshipFields: (relationshipId: string) => Promise<void>;
   addWorkItem: (workItem: WorkItem) => void;
 }
 
@@ -139,6 +142,10 @@ export const useStore = create<RIOSState>((set, get) => ({
   },
 
   updateStage: (relationshipId, stage) => {
+    const oldRel = get().relationships.find((r) => r.id === relationshipId);
+    const oldStage = oldRel?.currentStage;
+
+    // Optimistic update — UI reflects it immediately.
     set((state) => ({
       relationships: state.relationships.map((rel) =>
         rel.id === relationshipId ? { ...rel, currentStage: stage } : rel
@@ -150,6 +157,10 @@ export const useStore = create<RIOSState>((set, get) => ({
           : item
       )
     }));
+
+    updateRelationshipStage(relationshipId, stage, oldStage).catch((err) => {
+      console.error('Failed to persist stage change:', err);
+    });
   },
 
   bulkComplete: () => {
@@ -175,10 +186,14 @@ export const useStore = create<RIOSState>((set, get) => ({
   },
 
   bulkChangeStage: (stage) => {
-    const { selectedWorkItemIds, workItems } = get();
+    const { selectedWorkItemIds, workItems, relationships } = get();
     const relIdsToUpdate = workItems
       .filter(item => selectedWorkItemIds.includes(item.id))
       .map(item => item.relationshipId);
+
+    // Capture old stages before the optimistic update overwrites them —
+    // needed for each relationship's stage-change audit event.
+    const oldStagesById = new Map(relationships.map((r) => [r.id, r.currentStage]));
 
     set((state) => ({
       relationships: state.relationships.map((rel) =>
@@ -191,6 +206,14 @@ export const useStore = create<RIOSState>((set, get) => ({
       ),
       selectedWorkItemIds: []
     }));
+
+    // Persist every affected relationship — fire-and-forget per item so
+    // one failure doesn't block the rest from saving.
+    relIdsToUpdate.forEach((relId) => {
+      updateRelationshipStage(relId, stage, oldStagesById.get(relId)).catch((err) => {
+        console.error(`Failed to persist stage change for ${relId}:`, err);
+      });
+    });
   },
 
   addRelationship: (relationship) => {
@@ -219,6 +242,53 @@ export const useStore = create<RIOSState>((set, get) => ({
     setRelationshipStarred(relationshipId, newValue).catch((err) => {
       console.error('Failed to persist starred toggle:', err);
     });
+  },
+
+  // Surgically updates ONLY the fields that a background AI recompute (or
+  // any other live update) actually changed — on the ONE relationship
+  // affected. Deliberately does NOT re-fetch or re-synthesize the whole
+  // relationships/workItems list, and deliberately does NOT touch
+  // selectedWorkItemId. A prior version of this used a full store.initialize()
+  // for this, which silently evicted the currently-viewed relationship
+  // from the list the moment its status changed enough to fall out of the
+  // top-N synthesis — causing the Advisor panel to go blank mid-conversation,
+  // a real regression a live test caught.
+  refreshRelationshipFields: async (relationshipId) => {
+    const { data, error } = await supabase
+      .from('relationships')
+      .select('relationship_temperature, outreach_status, next_best_action, next_touch_due, stage, icp_score')
+      .eq('id', relationshipId)
+      .single();
+
+    if (error || !data) {
+      console.error('Failed to refresh relationship fields:', error?.message);
+      return;
+    }
+
+    const patch = {
+      status: mapTemperatureToStatus(data.relationship_temperature),
+      nextBestAction: data.next_best_action || undefined,
+      currentStage: data.stage as any,
+      score: data.icp_score,
+    };
+
+    set((state) => ({
+      relationships: state.relationships.map((r) =>
+        r.id === relationshipId ? { ...r, ...patch, nextBestAction: patch.nextBestAction ?? r.nextBestAction } : r
+      ),
+      workItems: state.workItems.map((item) =>
+        item.relationshipId === relationshipId
+          ? {
+              ...item,
+              relationship: {
+                ...item.relationship,
+                ...patch,
+                nextBestAction: patch.nextBestAction ?? item.relationship.nextBestAction,
+              },
+            }
+          : item
+      ),
+    }));
   },
 
   addWorkItem: (workItem) => {

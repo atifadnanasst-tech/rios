@@ -1,5 +1,7 @@
 import { supabase } from '../supabaseClient';
 import type { ParsedConversation } from './importInteractions';
+import { computeNextTemperature } from './temperature';
+import { triggerIntelligenceRecompute } from './intelligenceRecompute';
 
 const VALID_REPLY_CLASSIFICATION = new Set(['Positive', 'Neutral', 'Negative', 'Info_Request', 'Not_Interested', 'Bounced']);
 const VALID_BUYING_SIGNAL_STAGE = new Set(['Awareness', 'Interest', 'Consideration', 'Intent', 'Closed_Won', 'Closed_Lost']);
@@ -16,7 +18,11 @@ function guardBuyingSignalStage(v: string | null): string | null {
   return v && VALID_BUYING_SIGNAL_STAGE.has(v) ? v : null;
 }
 
-export async function importParsedConversation(relationshipId: string, parsed: ParsedConversation): Promise<void> {
+export async function importParsedConversation(
+  relationshipId: string,
+  parsed: ParsedConversation,
+  onRecomputed?: () => void
+): Promise<void> {
   if (!parsed.messages.length) throw new Error('No messages to import.');
 
   const safeClassification = guardReplyClassification(parsed.overallClassification);
@@ -73,19 +79,18 @@ export async function importParsedConversation(relationshipId: string, parsed: P
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);
   } else {
     // Reuses the same classification → temperature mapping already proven
-    // in the original Apps Script (updateMasterFromReply_), not a new rule.
+    // in the original Apps Script (updateMasterFromReply_), now via the
+    // one shared computeNextTemperature function instead of duplicated
+    // local logic — that duplication had actually drifted out of sync
+    // with logInteraction's version until this consolidation.
     const classification = safeClassification;
-    let newTemp = current.relationship_temperature;
-    let newStatus: string | null = null;
-
-    if (classification === 'Positive' || classification === 'Info_Request') {
-      newTemp = 'Hot';
-      newStatus = 'engaged';
-    } else if (classification === 'Not_Interested') {
-      newStatus = 'opted_out';
-    } else if (classification === 'Negative') {
-      newTemp = 'Cold';
-    }
+    const newTemp = computeNextTemperature(current.relationship_temperature as any, classification as any);
+    const newStatus =
+      classification === 'Not_Interested'
+        ? 'opted_out'
+        : classification === 'Positive' || classification === 'Info_Request'
+        ? 'engaged'
+        : null;
 
     const updatePayload: Record<string, any> = {
       last_reply_date: last.date,
@@ -96,5 +101,10 @@ export async function importParsedConversation(relationshipId: string, parsed: P
 
     const { error } = await supabase.from('relationships').update(updatePayload).eq('id', relationshipId);
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);
+
+    // This path already classifies correctly (unlike logInteraction's naive
+    // step-up), but never touches next_best_action or extracts memory
+    // facts — the recompute engine covers both, in the background.
+    triggerIntelligenceRecompute(relationshipId, 'reply').then(() => onRecomputed?.());
   }
 }

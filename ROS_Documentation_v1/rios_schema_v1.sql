@@ -551,4 +551,24 @@ create policy "dev_anon_read_work_items" on work_items for select using (true);
 grant select, insert on relationship_memory to anon;
 create policy "dev_anon_read_relationship_memory" on relationship_memory for select using (true);
 create policy "dev_anon_insert_relationship_memory" on relationship_memory for insert with check (true);
+
+-- ============================================================
+-- AI FEEDBACK — capture-only for now (edits, guidance), pure data
+-- collection toward a future "learned preferences" system. Nothing reads
+-- or acts on this table yet. Follows the same pattern as relationship_events:
+-- no organisation_id column, derivable via relationship_id join.
+-- ============================================================
+
+create table ai_feedback (
+  id uuid primary key default gen_random_uuid(),
+  relationship_id uuid references relationships(id) on delete cascade,
+  feedback_type text not null, -- 'reply_edited' | 'guidance_given'
+  ai_output text,
+  user_correction text,
+  created_at timestamptz not null default now()
+);
+
+grant select, insert on ai_feedback to anon;
+create policy "dev_anon_read_ai_feedback" on ai_feedback for select using (true);
+create policy "dev_anon_insert_ai_feedback" on ai_feedback for insert with check (true);
 -- ============================================================

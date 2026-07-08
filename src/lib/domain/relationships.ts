@@ -93,3 +93,33 @@ export async function setRelationshipStarred(relationshipId: string, starred: bo
   const { error } = await supabase.from('relationships').update({ starred }).eq('id', relationshipId);
   if (error) throw new Error(`Failed to update starred: ${error.message}`);
 }
+
+// Fixes a real bug: clicking a stage dot previously only updated local
+// state, never Supabase — it looked like it worked, then silently reverted
+// on refresh. Also logs the change as a real relationship_event, giving a
+// genuine audit trail of how a relationship actually progressed over time,
+// not just its current snapshot.
+export async function updateRelationshipStage(
+  relationshipId: string,
+  newStage: string,
+  oldStage?: string
+): Promise<void> {
+  const { error: updateError } = await supabase
+    .from('relationships')
+    .update({ stage: newStage })
+    .eq('id', relationshipId);
+  if (updateError) throw new Error(`Failed to update stage: ${updateError.message}`);
+
+  // Event logging failure is non-fatal — the stage itself already saved,
+  // which is the primary action; losing the audit-trail entry shouldn't
+  // surface as an error to the user for what's a secondary record.
+  const { error: eventError } = await supabase.from('relationship_events').insert({
+    relationship_id: relationshipId,
+    event_type: 'stage_changed',
+    field_name: 'stage',
+    old_value: oldStage || null,
+    new_value: newStage,
+    source: 'manual',
+  });
+  if (eventError) console.error('Failed to log stage-change event:', eventError.message);
+}

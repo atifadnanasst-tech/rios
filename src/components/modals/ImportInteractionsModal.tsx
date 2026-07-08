@@ -8,7 +8,7 @@ import { importParsedConversation } from '../../lib/domain/bulkInteractions';
 interface ImportInteractionsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImported?: () => void;
+  onImported?: (relationshipId: string) => void;
   initialContact?: RelationshipSearchResult; // pre-fills the contact field, still editable until Parse is clicked
 }
 
@@ -120,7 +120,21 @@ export const ImportInteractionsModal: React.FC<ImportInteractionsModalProps> = (
         overallBuyingStage: result.overallBuyingStage,
         summary: result.summary,
       });
-      setMessages(result.messages);
+      // For a single parsed message with no date/channel detected, default
+      // sensibly instead of leaving it blank — same pattern already used
+      // in Paste Reply (today's date, the contact's last known channel).
+      const today = new Date().toISOString().slice(0, 10);
+      const messagesWithDefaults =
+        result.messages.length === 1
+          ? [
+              {
+                ...result.messages[0],
+                date: result.messages[0].date || today,
+                channel: result.messages[0].channel || selected.lastChannel || null,
+              },
+            ]
+          : result.messages;
+      setMessages(messagesWithDefaults);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to parse conversation');
     } finally {
@@ -145,8 +159,8 @@ export const ImportInteractionsModal: React.FC<ImportInteractionsModalProps> = (
     setImporting(true);
     setError(null);
     try {
-      await importParsedConversation(selected.id, { ...meta, messages });
-      onImported?.();
+      await importParsedConversation(selected.id, { ...meta, messages }, () => onImported?.(selected.id));
+      onImported?.(selected.id);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save imported conversation');
@@ -369,7 +383,13 @@ export const ImportInteractionsModal: React.FC<ImportInteractionsModalProps> = (
 
                   {error && <div className="text-xs text-red-400">{error}</div>}
 
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={resetAndClose}
+                      className="h-10 rounded-lg bg-transparent border border-white/15 text-zinc-400 text-sm font-semibold hover:text-white hover:border-white/25 transition-all"
+                    >
+                      Cancel
+                    </button>
                     <button
                       onClick={handleSave}
                       disabled={importing || messages.length === 0}

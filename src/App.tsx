@@ -30,6 +30,25 @@ import { LogInteractionModal } from './components/modals/LogInteractionModal.tsx
 import { ImportInteractionsModal } from './components/modals/ImportInteractionsModal.tsx';
 import { Relationship, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
 
+// Converts the frontend's lowercase channel format ('email') to the
+// database's capitalized format ('Email') — a mismatch here previously
+// caused the channel dropdown to silently hold an invalid value that got
+// rejected on save, even though it visually looked correct.
+function mapFrontendChannelToDb(channel: string | null): 'LinkedIn' | 'Email' | 'WhatsApp' | 'Phone' | null {
+  switch (channel) {
+    case 'email':
+      return 'Email';
+    case 'linkedin':
+      return 'LinkedIn';
+    case 'whatsapp':
+      return 'WhatsApp';
+    case 'phone':
+      return 'Phone';
+    default:
+      return null;
+  }
+}
+
 export default function App() {
   const store = useStore();
   const [activeView, setActiveView] = useState('command-center');
@@ -81,7 +100,7 @@ export default function App() {
     name: selectedWorkItem.relationship.name,
     company: selectedWorkItem.relationship.company,
     position: null,
-    lastChannel: selectedWorkItem.relationship.suggestedChannel as any,
+    lastChannel: mapFrontendChannelToDb(selectedWorkItem.relationship.suggestedChannel),
   } : undefined;
 
   // Global hotkeys: I = Import Interactions, R = Paste Reply.
@@ -504,6 +523,7 @@ export default function App() {
               alert('Work item scheduled action snoozed for 2 hours.');
             }}
             onUpdateStage={(relId, stage) => store.updateStage(relId, stage)}
+            onRecomputed={(relId) => store.refreshRelationshipFields(relId)}
           />
         </div>
       </div>
@@ -775,7 +795,7 @@ export default function App() {
       <LogInteractionModal
         isOpen={showPasteReply}
         onClose={() => setShowPasteReply(false)}
-        onLogged={() => store.initialize()}
+        onLogged={(relId) => store.refreshRelationshipFields(relId)}
         initialContact={activeContactForModals}
       />
 
@@ -783,7 +803,7 @@ export default function App() {
       <ImportInteractionsModal
         isOpen={showImportInteractions}
         onClose={() => setShowImportInteractions(false)}
-        onImported={() => store.initialize()}
+        onImported={(relId) => store.refreshRelationshipFields(relId)}
         initialContact={activeContactForModals}
       />
     </div>

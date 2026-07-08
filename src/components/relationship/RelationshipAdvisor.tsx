@@ -30,6 +30,7 @@ import { fetchRelationshipHistory, updateHistoryEntry, deleteHistoryEntry, Relat
 import { getReplySuggestion } from '../../lib/domain/replyAssistant';
 import { sendAndLogMessage } from '../../lib/domain/sendMessage';
 import { logInteraction } from '../../lib/domain/interactions';
+import { recordAiFeedback } from '../../lib/domain/aiFeedback';
 
 interface RelationshipAdvisorProps {
   item: WorkItem | null;
@@ -37,6 +38,7 @@ interface RelationshipAdvisorProps {
   onComplete: (id: string) => void;
   onSnooze: (id: string) => void;
   onUpdateStage: (relationshipId: string, stage: RelationshipStage) => void;
+  onRecomputed?: (relationshipId: string) => void;
   id?: string;
 }
 
@@ -170,6 +172,7 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   onComplete,
   onSnooze,
   onUpdateStage,
+  onRecomputed,
   id
 }) => {
   const [showTagInput, setShowTagInput] = useState(false);
@@ -223,7 +226,14 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
     document.body.style.userSelect = 'none';
   }
 
-  // Sync internal state with props when relationship changes
+  // Sync internal state with props when relationship changes.
+  // Deliberately keyed on the relationship's actual ID, NOT the whole
+  // `item` object — refreshRelationshipFields (and other surgical
+  // updates) create a new object reference for the SAME relationship on
+  // every background correction, which previously caused this effect to
+  // misfire and wipe an in-progress reply draft the user hadn't sent yet,
+  // even though they never switched to a different person. Only a genuine
+  // switch (a different relationship ID) should ever reset this state.
   React.useEffect(() => {
     if (item) {
       setLocalTags(item.relationship.tags);
@@ -234,7 +244,7 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       setReplyReasoning('');
       setReplyError(null);
     }
-  }, [item]);
+  }, [item?.relationship.id]);
 
   // Refetches history whenever the item object changes — including when
   // the SAME relationship's underlying data changes (e.g. right after
@@ -371,6 +381,13 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
         channel: channelForDb,
         messageDate: new Date().toISOString().slice(0, 10),
         messageText: incomingMessage,
+        onRecomputed: () => {
+          onRecomputed?.(rel.id);
+          fetchRelationshipHistory(rel.id).then((page) => {
+            setHistory(page.entries);
+            setHasMoreOlder(page.hasMore);
+          });
+        },
       });
       const refreshed = await fetchRelationshipHistory(rel.id);
       setHistory(refreshed.entries);
@@ -380,6 +397,19 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       const result = await getReplySuggestion(rel.id, incomingMessage, userGuidance);
       setSuggestedReply(result.reply);
       setReplyReasoning(result.reasoning);
+
+      // Capture guidance as a feedback signal — right now it only steers
+      // this one reply, but it's a real, explicit signal about how you
+      // want things handled, worth keeping for whenever a "learned
+      // preferences" system reads this table.
+      if (userGuidance.trim()) {
+        recordAiFeedback({
+          relationshipId: rel.id,
+          feedbackType: 'guidance_given',
+          aiOutput: incomingMessage,
+          userCorrection: userGuidance.trim(),
+        });
+      }
     } catch (err) {
       setReplyError(err instanceof Error ? err.message : 'Failed to get a suggested reply');
     } finally {
@@ -390,6 +420,20 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   async function handleSendMessage(text: string, channelOverride?: CommunicationChannel) {
     const channel = channelOverride || currentChannel;
     if (!channel) return;
+
+    // If what's actually being sent differs from the AI's original
+    // suggestion, that's a real correction worth capturing — this is the
+    // actual data collection step for a future "learn from overrides"
+    // system, not yet used to change any AI behavior.
+    if (suggestedReply && text.trim() !== suggestedReply.trim()) {
+      recordAiFeedback({
+        relationshipId: rel.id,
+        feedbackType: 'reply_edited',
+        aiOutput: suggestedReply,
+        userCorrection: text,
+      });
+    }
+
     try {
       const result = await sendAndLogMessage(rel.id, channel, text);
       if (result.opened) {
@@ -461,6 +505,16 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
             <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-red-950/40 border border-red-500/20 text-[#EF4444] text-[10px] font-bold">
               <Flame className="w-3 h-3 fill-red-500" />
               <span>Hot</span>
+            </div>
+          )}
+          {rel.status === 'Warm' && (
+            <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-950/40 border border-amber-500/20 text-amber-400 text-[10px] font-bold">
+              <span>Warm</span>
+            </div>
+          )}
+          {rel.status === 'Cold' && (
+            <div className="flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-950/40 border border-blue-500/20 text-blue-400 text-[10px] font-bold">
+              <span>Cold</span>
             </div>
           )}
         </div>

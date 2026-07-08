@@ -7,7 +7,7 @@ import { logInteraction } from '../../lib/domain/interactions';
 interface LogInteractionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onLogged?: () => void; // call this to trigger a refresh of the store after a successful save
+  onLogged?: (relationshipId: string) => void; // call this to trigger a surgical refresh of just this relationship
   initialContact?: RelationshipSearchResult; // if provided, skips search and pre-fills this contact
 }
 
@@ -119,8 +119,14 @@ export const LogInteractionModal: React.FC<LogInteractionModalProps> = ({ isOpen
         channel,
         messageDate,
         messageText,
+        // Fires a second refresh once the background AI correction
+        // actually lands (a few seconds later) — without this, an
+        // interaction that should cool a relationship down (e.g. "please
+        // do not contact me") could look unchanged until something else
+        // happens to trigger a refresh.
+        onRecomputed: () => onLogged?.(selected.id),
       });
-      onLogged?.();
+      onLogged?.(selected.id);
       resetAndClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save interaction');
