@@ -20,6 +20,19 @@ function normalizeRow(row: RawRow): RelationshipRow {
   return { ...row, contacts: Array.isArray(row.contacts) ? row.contacts[0] ?? null : row.contacts } as RelationshipRow;
 }
 
+export async function fetchRelationshipRowById(relationshipId: string): Promise<RelationshipRow | null> {
+  const { data, error } = await supabase
+    .from('relationships')
+    .select(RELATIONSHIP_SELECT)
+    .eq('id', relationshipId)
+    .single();
+  if (error || !data) {
+    console.error('Failed to fetch relationship by id:', error?.message);
+    return null;
+  }
+  return data as unknown as RelationshipRow;
+}
+
 export async function fetchTopRelationships(limit = 25): Promise<Relationship[]> {
   const { data, error } = await supabase
     .from('relationships')

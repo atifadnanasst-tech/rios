@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage } from '../types/index.ts';
-import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred, updateRelationshipStage } from '../lib/domain/relationships';
-import { mapTemperatureToStatus } from '../lib/domain/mappers';
+import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred, updateRelationshipStage, fetchRelationshipRowById } from '../lib/domain/relationships';
+import { mapTemperatureToStatus, mapRowToRelationship, buildWorkItemFromRelationship } from '../lib/domain/mappers';
 import { supabase } from '../lib/supabaseClient';
 
 interface RIOSState {
@@ -33,6 +33,7 @@ interface RIOSState {
   addRelationship: (relationship: Relationship) => void;
   toggleStarred: (relationshipId: string) => void;
   refreshRelationshipFields: (relationshipId: string) => Promise<void>;
+  openRelationshipById: (relationshipId: string) => Promise<void>;
   addWorkItem: (workItem: WorkItem) => void;
 }
 
@@ -288,6 +289,31 @@ export const useStore = create<RIOSState>((set, get) => ({
             }
           : item
       ),
+    }));
+  },
+
+  // Opens a relationship in the Advisor panel regardless of whether it's
+  // currently in the loaded top-25 work queue — needed for search results
+  // that point at someone who fell out of the synthesized queue (e.g. an
+  // opted-out relationship), which previously had genuinely no way to be
+  // opened at all once they dropped out of view.
+  openRelationshipById: async (relationshipId) => {
+    const alreadyLoaded = get().workItems.find((item) => item.relationshipId === relationshipId);
+    if (alreadyLoaded) {
+      set({ selectedWorkItemId: alreadyLoaded.id });
+      return;
+    }
+
+    const row = await fetchRelationshipRowById(relationshipId);
+    if (!row) return;
+
+    const relationship = mapRowToRelationship(row);
+    const workItem = buildWorkItemFromRelationship(row);
+
+    set((state) => ({
+      relationships: [relationship, ...state.relationships],
+      workItems: [workItem, ...state.workItems],
+      selectedWorkItemId: workItem.id,
     }));
   },
 
