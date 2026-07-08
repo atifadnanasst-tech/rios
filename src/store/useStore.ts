@@ -257,7 +257,7 @@ export const useStore = create<RIOSState>((set, get) => ({
   refreshRelationshipFields: async (relationshipId) => {
     const { data, error } = await supabase
       .from('relationships')
-      .select('relationship_temperature, outreach_status, next_best_action, next_touch_due, stage, icp_score')
+      .select('relationship_temperature, outreach_status, next_best_action, next_touch_due, stage, icp_score, suggested_stage')
       .eq('id', relationshipId)
       .single();
 
@@ -271,6 +271,7 @@ export const useStore = create<RIOSState>((set, get) => ({
       nextBestAction: data.next_best_action || undefined,
       currentStage: data.stage as any,
       score: data.icp_score,
+      suggestedStage: (data.suggested_stage as any) || null,
     };
 
     set((state) => ({

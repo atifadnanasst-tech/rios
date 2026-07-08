@@ -19,11 +19,18 @@ export type RecomputeResult = {
   nextTouchDue: string | null;
   classification: string | null;
   correctedTemperature: string | null;
+  suggestedStage: string | null;
   extractedFactsCount: number;
   trigger: string;
 };
 
 const VALID_CLASSIFICATIONS = ['Positive', 'Neutral', 'Negative', 'Info_Request', 'Not_Interested', 'Bounced'];
+const VALID_STAGES = [
+  'Discovered', 'Connected', 'Recognized', 'Rapport', 'Trust', 'Business Context',
+  'Need Identified', 'Solution Alignment', 'Commercial Interest', 'Meeting', 'RFQ',
+  'Quotation', 'Negotiation', 'Purchase Order', 'Execution', 'Repeat Business',
+  'Strategic Partner', 'Advocate',
+];
 
 export async function runRecompute(
   supabase: any,
@@ -109,13 +116,15 @@ ${historyBlock}
 2. next_touch_due: a real date in YYYY-MM-DD format for when this action should happen. If the history contains an explicit timing signal (e.g. "I'll revert next week", "let's talk after the holidays"), compute the date from that relative to ${todayStr}. If there's no explicit signal, use a sensible default based on temperature and stage (Hot/recently engaged = sooner, e.g. 3-5 days; Cold/early stage = further out, e.g. 14-21 days). Never return a date in the past.
 3. extracted_facts: an array of genuinely NEW facts learned from the history that aren't already in the known-facts list above — concrete, useful things like project mentions, stated preferences, decision-maker identification, competitor mentions, timelines. Return an empty array if there's nothing new. Each fact needs a short fact_type (e.g. "project_mention", "preference", "decision_maker", "timeline") and a value (the fact itself, one sentence).
 4. classification: based on the MOST RECENT message from the contact (not from the owner), EXACTLY one of these six words: Positive, Neutral, Negative, Info_Request, Not_Interested, Bounced. This is used to correct the relationship's temperature — a naive rule-based system may have already set temperature incorrectly (e.g. treating "please do not contact me" as positive engagement just because a reply arrived) and this classification is what corrects that. If there is NO message from the contact anywhere in the history (a first-touch candidate who has never actually replied), return null for this field — do not invent a classification, and do not suggest a temperature/status change, since nothing has actually happened yet to justify one.
+5. suggested_stage: if — AND ONLY IF — the history contains a genuinely strong, explicit signal that this relationship has clearly moved to a new stage (e.g. "let's schedule a call" → Meeting, "please send the contract" → Negotiation, "can you send a quotation" → Quotation), return that exact stage name from this list: Discovered, Connected, Recognized, Rapport, Trust, Business Context, Need Identified, Solution Alignment, Commercial Interest, Meeting, RFQ, Quotation, Negotiation, Purchase Order, Execution, Repeat Business, Strategic Partner, Advocate. This is a SUGGESTION shown to the owner for their approval, never applied automatically — so it is fine, and expected, to return null far more often than not. Only suggest a stage that is a clear forward step from the current stage (never suggest backward, and never suggest the same stage the relationship is already at). If there is no strong, explicit signal, return null — do not guess or suggest a minor/ambiguous advance.
 
 Return ONLY valid JSON, no markdown fences, in exactly this shape:
 {
   "next_best_action": "...",
   "next_touch_due": "YYYY-MM-DD",
   "extracted_facts": [{"fact_type": "...", "value": "..."}],
-  "classification": "..." or null
+  "classification": "..." or null,
+  "suggested_stage": "..." or null
 }`;
 
   const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -174,6 +183,19 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
     correctedStatus = 'opted_out';
   }
 
+  // Only accept a stage suggestion that's genuinely a forward step from
+  // where the relationship actually is right now — never backward, never
+  // the same stage, and only from the real, valid stage list. This is a
+  // suggestion for the owner to approve, never applied automatically.
+  let suggestedStage: string | null = null;
+  if (VALID_STAGES.includes(parsed.suggested_stage)) {
+    const currentIdx = VALID_STAGES.indexOf(rel.stage);
+    const suggestedIdx = VALID_STAGES.indexOf(parsed.suggested_stage);
+    if (suggestedIdx > currentIdx) {
+      suggestedStage = parsed.suggested_stage;
+    }
+  }
+
   const { error: updateError } = await supabase
     .from('relationships')
     .update({
@@ -182,6 +204,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
       ...(correctedTemperature ? { relationship_temperature: correctedTemperature } : {}),
       ...(correctedStatus ? { outreach_status: correctedStatus } : {}),
       ...(classification ? { last_reply_classification: classification } : {}),
+      suggested_stage: suggestedStage, // explicitly overwrite each time, including back to null if no longer justified
     })
     .eq('id', relationshipId);
   if (updateError) throw new Error(`Failed to update relationship: ${updateError.message}`);
@@ -208,6 +231,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
     nextTouchDue: safeDueDate,
     classification,
     correctedTemperature,
+    suggestedStage,
     extractedFactsCount: facts.length,
     trigger,
   };

@@ -7,7 +7,7 @@ const RELATIONSHIP_SELECT = `
   id, company, position, goal, stage, icp_score, icp_tier,
   relationship_temperature, next_best_action, last_outreach_channel,
   classification_confidence, persona, company_type, next_touch_due,
-  outreach_status, touch_number, starred,
+  outreach_status, touch_number, starred, suggested_stage,
   contacts ( first_name, last_name, country )
 `;
 
@@ -105,6 +105,22 @@ export async function completeRelationshipAction(relationshipId: string, actionT
 export async function setRelationshipStarred(relationshipId: string, starred: boolean): Promise<void> {
   const { error } = await supabase.from('relationships').update({ starred }).eq('id', relationshipId);
   if (error) throw new Error(`Failed to update starred: ${error.message}`);
+}
+
+// Accepting an AI-suggested stage advance applies it via the exact same
+// (correctly-persisting) stage-update path as a manual change, then
+// clears the suggestion. Dismissing just clears it, without touching the
+// real stage — per the Constitution's rule that AI never owns business
+// logic, this is always the owner's decision, never automatic.
+export async function acceptSuggestedStage(relationshipId: string, suggestedStage: string, oldStage: string): Promise<void> {
+  await updateRelationshipStage(relationshipId, suggestedStage, oldStage);
+  const { error } = await supabase.from('relationships').update({ suggested_stage: null }).eq('id', relationshipId);
+  if (error) throw new Error(`Failed to clear suggested stage: ${error.message}`);
+}
+
+export async function dismissSuggestedStage(relationshipId: string): Promise<void> {
+  const { error } = await supabase.from('relationships').update({ suggested_stage: null }).eq('id', relationshipId);
+  if (error) throw new Error(`Failed to dismiss suggested stage: ${error.message}`);
 }
 
 // Fixes a real bug: clicking a stage dot previously only updated local

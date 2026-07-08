@@ -2,7 +2,7 @@ import { supabase } from '../supabaseClient';
 
 export type AiFeedbackInput = {
   relationshipId: string;
-  feedbackType: 'reply_edited' | 'guidance_given';
+  feedbackType: 'reply_edited' | 'guidance_given' | 'stage_suggestion_accepted' | 'stage_suggestion_dismissed';
   aiOutput?: string | null;
   userCorrection: string;
 };

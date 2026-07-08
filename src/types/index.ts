@@ -30,6 +30,7 @@ export interface Relationship {
   avatar: string;
   company: string;
   position: string;
+  suggestedStage: RelationshipStage | null;
   location: string;
   starred: boolean;
   score: number;

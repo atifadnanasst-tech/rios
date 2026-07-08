@@ -172,6 +172,7 @@ export default function App() {
       avatar: '', // Fallback initials
       company: newRelCompany,
       position: '', // no dedicated input field in this form yet
+      suggestedStage: null, // no AI suggestion exists yet for a brand-new manual entry
       location: newRelLocation || 'Remote',
       starred: false,
       score: 60,

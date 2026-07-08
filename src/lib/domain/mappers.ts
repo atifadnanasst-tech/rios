@@ -30,6 +30,7 @@ export type RelationshipRow = {
   outreach_status: string;
   touch_number: number;
   starred: boolean;
+  suggested_stage: string | null;
   contacts: {
     first_name: string;
     last_name: string | null;
@@ -87,6 +88,7 @@ export function mapRowToRelationship(row: RelationshipRow): Relationship {
     score: row.icp_score,
     status: mapTemperatureToStatus(row.relationship_temperature),
     starred: row.starred,
+    suggestedStage: (row.suggested_stage as any) || null,
     commercialGoal: row.goal,
     currentStage: row.stage,
     tags: [row.persona, row.company_type, row.icp_tier].filter(Boolean) as string[],

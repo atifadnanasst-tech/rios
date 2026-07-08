@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
     try {
       const { data: orgs, error: orgsError } = await supabase
         .from('organisations')
-        .select('id, daily_new_touch_cap, daily_sweep_hour_utc, daily_sweep_last_run_date');
+        .select('id, daily_new_touch_cap, daily_sweep_hour_utc, daily_sweep_minute_utc, daily_sweep_last_run_date');
       if (orgsError) throw new Error(`Failed to load organisations: ${orgsError.message}`);
 
       console.log(`Sweep starting for ${today} — ${(orgs || []).length} organisation(s).`);
@@ -116,8 +116,13 @@ Deno.serve(async (req) => {
         // Settings screen) takes effect immediately, with zero need to
         // ever touch the pg_cron schedule itself again.
         const currentUtcHour = new Date().getUTCHours();
+        const currentUtcMinute = new Date().getUTCMinutes();
         const alreadyRanToday = org.daily_sweep_last_run_date === today;
-        if (currentUtcHour !== org.daily_sweep_hour_utc || alreadyRanToday) {
+        if (
+          currentUtcHour !== org.daily_sweep_hour_utc ||
+          currentUtcMinute !== org.daily_sweep_minute_utc ||
+          alreadyRanToday
+        ) {
           continue;
         }
 

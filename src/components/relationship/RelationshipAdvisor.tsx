@@ -31,6 +31,7 @@ import { getReplySuggestion } from '../../lib/domain/replyAssistant';
 import { sendAndLogMessage } from '../../lib/domain/sendMessage';
 import { logInteraction } from '../../lib/domain/interactions';
 import { recordAiFeedback } from '../../lib/domain/aiFeedback';
+import { dismissSuggestedStage } from '../../lib/domain/relationships';
 
 interface RelationshipAdvisorProps {
   item: WorkItem | null;
@@ -557,6 +558,51 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
               className="mt-1"
             />
           </div>
+
+          {rel.suggestedStage && (
+            <div className="p-3 rounded-xl bg-rios-purple/10 border border-rios-purple/25 flex flex-col gap-2">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-rios-purple shrink-0" />
+                <span className="text-[11px] text-zinc-200">
+                  AI suggests moving to <span className="font-bold text-white">{rel.suggestedStage}</span>
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    onUpdateStage(rel.id, rel.suggestedStage!);
+                    await dismissSuggestedStage(rel.id);
+                    recordAiFeedback({
+                      relationshipId: rel.id,
+                      feedbackType: 'stage_suggestion_accepted',
+                      aiOutput: `Suggested stage advance: ${rel.suggestedStage}`,
+                      userCorrection: 'Accepted — the AI\'s stage judgment was correct.',
+                    });
+                    onRecomputed?.(rel.id);
+                  }}
+                  className="flex-1 py-1.5 rounded-lg bg-rios-purple text-white text-[11px] font-semibold hover:bg-rios-purple/90 transition-all"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={async () => {
+                    const dismissedStage = rel.suggestedStage;
+                    await dismissSuggestedStage(rel.id);
+                    recordAiFeedback({
+                      relationshipId: rel.id,
+                      feedbackType: 'stage_suggestion_dismissed',
+                      aiOutput: `Suggested stage advance: ${dismissedStage}`,
+                      userCorrection: 'Dismissed — the AI\'s stage judgment was wrong or premature.',
+                    });
+                    onRecomputed?.(rel.id);
+                  }}
+                  className="flex-1 py-1.5 rounded-lg bg-zinc-800 border border-white/10 text-zinc-300 text-[11px] font-semibold hover:bg-zinc-700 transition-all"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* SUGGESTED CHANNEL */}
