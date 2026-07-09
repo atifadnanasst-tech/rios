@@ -152,3 +152,58 @@ export async function updateRelationshipStage(
   });
   if (eventError) console.error('Failed to log stage-change event:', eventError.message);
 }
+
+// Creates a minimal relationship row for a contact who was discovered as
+// a mutual connection but doesn't have an active relationship yet.
+// This makes them first-class citizens in RIOS — same pipeline, just
+// starting from a thinner baseline. Org ID is read from an existing
+// relationship to avoid requiring the caller to know it.
+export async function findOrCreateRelationshipForContact(
+  contactId: string,
+  orgId?: string
+): Promise<string | null> {
+  // Resolve org ID — if not passed, read it from any existing relationship
+  // (all relationships in a single-org deployment share the same org ID)
+  let resolvedOrgId = orgId;
+  if (!resolvedOrgId) {
+    const { data: anyRel } = await supabase
+      .from('relationships')
+      .select('organisation_id')
+      .limit(1)
+      .single();
+    resolvedOrgId = anyRel?.organisation_id;
+  }
+  if (!resolvedOrgId) {
+    console.error('Could not resolve organisation_id for contact relationship creation');
+    return null;
+  }
+
+  // Check if a relationship already exists
+  const { data: existing } = await supabase
+    .from('relationships')
+    .select('id')
+    .eq('contact_id', contactId)
+    .eq('organisation_id', resolvedOrgId)
+    .maybeSingle();
+  if (existing) return existing.id;
+
+  const { data: created, error } = await supabase
+    .from('relationships')
+    .insert({
+      contact_id: contactId,
+      organisation_id: resolvedOrgId,
+      stage: 'Discovered',
+      relationship_temperature: 'Cold',
+      outreach_status: 'nurture',
+      goal: 'Commercial Discovery',
+      icp_score: 0,
+      touch_number: 0,
+    })
+    .select('id')
+    .single();
+  if (error || !created) {
+    console.error('Failed to create minimal relationship:', error?.message);
+    return null;
+  }
+  return created.id;
+}

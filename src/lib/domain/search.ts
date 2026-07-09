@@ -1,7 +1,8 @@
 import { supabase } from '../supabaseClient';
 
 export type RelationshipSearchResult = {
-  id: string;
+  id: string; // relationships.id
+  contactId: string; // contacts.id — needed for enrichment writes to contacts/employment_history/connection edges
   name: string;
   company: string | null;
   position: string | null;
@@ -18,7 +19,7 @@ export async function searchRelationships(query: string, limit = 10): Promise<Re
 
   const { data, error } = await supabase
     .from('relationships')
-    .select('id, company, position, last_outreach_channel, contacts!inner(first_name, last_name)')
+    .select('id, contact_id, company, position, last_outreach_channel, contacts!inner(first_name, last_name)')
     .or(`first_name.ilike.%${trimmed}%,last_name.ilike.%${trimmed}%`, { foreignTable: 'contacts' })
     .limit(limit);
 
@@ -28,6 +29,7 @@ export async function searchRelationships(query: string, limit = 10): Promise<Re
     const contact = Array.isArray(row.contacts) ? row.contacts[0] : row.contacts;
     return {
       id: row.id,
+      contactId: row.contact_id,
       name: contact ? [contact.first_name, contact.last_name].filter(Boolean).join(' ') : 'Unknown',
       company: row.company,
       position: row.position,

@@ -28,6 +28,7 @@ import { RelationshipAdvisor } from './components/relationship/RelationshipAdvis
 import { BulkToolbar } from './components/relationship/BulkToolbar.tsx';
 import { LogInteractionModal } from './components/modals/LogInteractionModal.tsx';
 import { ImportInteractionsModal } from './components/modals/ImportInteractionsModal.tsx';
+import { LinkedinEnrichmentModal } from './components/modals/LinkedinEnrichmentModal.tsx';
 import { Relationship, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
 
 // Converts the frontend's lowercase channel format ('email') to the
@@ -58,6 +59,7 @@ export default function App() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPasteReply, setShowPasteReply] = useState(false);
   const [showImportInteractions, setShowImportInteractions] = useState(false);
+  const [showEnrichment, setShowEnrichment] = useState(false);
 
   // New relationship form fields
   const [newRelName, setNewRelName] = useState('');
@@ -128,6 +130,9 @@ export default function App() {
       } else if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
         setShowPasteReply(true);
+      } else if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault();
+        setShowEnrichment(true);
       }
     }
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -248,6 +253,7 @@ export default function App() {
         onAddRelationship={() => setShowAddModal(true)}
         onPasteReply={() => setShowPasteReply(true)}
         onImportInteractions={() => setShowImportInteractions(true)}
+        onEnrichContact={() => setShowEnrichment(true)}
       />
 
       {/* MAIN LAYOUT WRAPPER (COLUMN 2 & COLUMN 3 CONTAINER) */}
@@ -525,6 +531,11 @@ export default function App() {
             }}
             onUpdateStage={(relId, stage) => store.updateStage(relId, stage)}
             onRecomputed={(relId) => store.refreshRelationshipFields(relId)}
+            onOpenContact={async (contactId) => {
+              const { findOrCreateRelationshipForContact: createRel } = await import('./lib/domain/relationships');
+              const relId = await createRel(contactId);
+              if (relId) await store.openRelationshipById(relId);
+            }}
           />
         </div>
       </div>
@@ -805,6 +816,13 @@ export default function App() {
         isOpen={showImportInteractions}
         onClose={() => setShowImportInteractions(false)}
         onImported={(relId) => store.refreshRelationshipFields(relId)}
+        initialContact={activeContactForModals}
+      />
+
+      <LinkedinEnrichmentModal
+        isOpen={showEnrichment}
+        onClose={() => setShowEnrichment(false)}
+        onEnriched={(relId) => store.refreshRelationshipFields(relId)}
         initialContact={activeContactForModals}
       />
     </div>

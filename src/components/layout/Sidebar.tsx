@@ -17,7 +17,8 @@ import {
   ClipboardPaste,
   Sparkles,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Linkedin,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -26,6 +27,7 @@ interface SidebarProps {
   onAddRelationship?: () => void;
   onPasteReply?: () => void;
   onImportInteractions?: () => void;
+  onEnrichContact?: () => void;
   id?: string;
 }
 
@@ -35,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAddRelationship,
   onPasteReply,
   onImportInteractions,
+  onEnrichContact,
   id
 }) => {
   const [collapsed, setCollapsed] = useState(false);
@@ -69,6 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Sparkles,
       action: onImportInteractions,
       hint: 'Paste a whole conversation history (email thread, LinkedIn chat, WhatsApp export). AI splits it into individual messages and logs them all at once.'
+    },
+    {
+      label: 'Enrich Contact',
+      icon: Linkedin,
+      action: onEnrichContact,
+      hint: 'Paste a LinkedIn profile, company page, and mutual connections to enrich a contact — populates their background, employment history, and network edges. Hotkey: E'
     },
     {
       label: 'Create Task',

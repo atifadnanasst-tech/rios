@@ -31,7 +31,8 @@ import { getReplySuggestion } from '../../lib/domain/replyAssistant';
 import { sendAndLogMessage } from '../../lib/domain/sendMessage';
 import { logInteraction } from '../../lib/domain/interactions';
 import { recordAiFeedback } from '../../lib/domain/aiFeedback';
-import { dismissSuggestedStage } from '../../lib/domain/relationships';
+import { dismissSuggestedStage, findOrCreateRelationshipForContact } from '../../lib/domain/relationships';
+import { fetchContactBackground } from '../../lib/domain/linkedinEnrichment';
 
 interface RelationshipAdvisorProps {
   item: WorkItem | null;
@@ -40,6 +41,8 @@ interface RelationshipAdvisorProps {
   onSnooze: (id: string) => void;
   onUpdateStage: (relationshipId: string, stage: RelationshipStage) => void;
   onRecomputed?: (relationshipId: string) => void;
+  onOpenContact?: (contactId: string) => Promise<void>;
+  orgId?: string;
   id?: string;
 }
 
@@ -174,6 +177,8 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   onSnooze,
   onUpdateStage,
   onRecomputed,
+  onOpenContact,
+  orgId,
   id
 }) => {
   const [showTagInput, setShowTagInput] = useState(false);
@@ -196,6 +201,12 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   const [replyReasoning, setReplyReasoning] = useState('');
   const [isGettingReply, setIsGettingReply] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+
+  // Background panel — lazy-loaded only when the chevron is clicked,
+  // not on every card open. Resets when switching to a different contact.
+  const [showBackground, setShowBackground] = useState(false);
+  const [backgroundData, setBackgroundData] = useState<Awaited<ReturnType<typeof fetchContactBackground>> | null>(null);
+  const [loadingBackground, setLoadingBackground] = useState(false);
 
   // Resizable panel width — drag the left edge, same pattern as VS Code's
   // sidebar or an Excel column border.
@@ -245,6 +256,13 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       setReplyReasoning('');
       setReplyError(null);
     }
+  }, [item?.relationship.id]);
+
+  // Reset the background panel when switching to a different contact —
+  // don't show person A's background while viewing person B
+  React.useEffect(() => {
+    setShowBackground(false);
+    setBackgroundData(null);
   }, [item?.relationship.id]);
 
   // Refetches history whenever the item object changes — including when
@@ -518,7 +536,178 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
               <span>Cold</span>
             </div>
           )}
+
+          {/* Background panel chevron — "who is this person" */}
+          <button
+            onClick={async () => {
+              if (!showBackground && !backgroundData) {
+                setLoadingBackground(true);
+                try {
+                  const data = await fetchContactBackground(rel.id);
+                  setBackgroundData(data);
+                } catch (err) {
+                  console.error('Failed to load background:', err);
+                } finally {
+                  setLoadingBackground(false);
+                }
+              }
+              setShowBackground((v) => !v);
+            }}
+            className="ml-auto p-1.5 rounded-lg hover:bg-white/5 text-zinc-500 hover:text-zinc-300 transition-all"
+            title="Contact background"
+          >
+            {loadingBackground
+              ? <span className="w-4 h-4 border border-zinc-600 border-t-zinc-300 rounded-full animate-spin block" />
+              : <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showBackground ? 'rotate-180' : ''}`} />
+            }
+          </button>
         </div>
+
+        {/* Background Panel — employment history, facts, connections */}
+        <AnimatePresence>
+          {showBackground && backgroundData && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden border-t border-white/[0.06]"
+            >
+              <div className="max-h-[320px] overflow-y-auto p-4 space-y-4 select-text cursor-text">
+
+                {/* Employment History */}
+                {backgroundData.employmentHistory.length > 0 && (
+                  <div>
+                    <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-rios-text-muted mb-2">Employment History</div>
+                    <div className="space-y-3">
+                      {backgroundData.employmentHistory.map((job: any, i: number) => (
+                        <div key={i}>
+                          <div className="text-xs font-semibold text-zinc-200">{job.company_name_raw}</div>
+                          {job.position && <div className="text-xs text-zinc-400 mt-0.5">{job.position}</div>}
+                          {(job.start_date || job.end_date) && (
+                            <div className="text-[11px] text-zinc-600 mt-0.5">
+                              {job.start_date ? new Date(job.start_date).getFullYear() : '?'}
+                              {' — '}
+                              {job.end_date ? new Date(job.end_date).getFullYear() : 'Present'}
+                            </div>
+                          )}
+                          {i < backgroundData.employmentHistory.length - 1 && (
+                            <div className="mt-3 border-t border-white/[0.04]" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Memory Facts — stacked with dividers */}
+                {backgroundData.memoryFacts.length > 0 && (
+                  <div>
+                    <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-rios-text-muted mb-2">
+                      Known Facts ({backgroundData.memoryFacts.length})
+                    </div>
+                    <div className="space-y-0">
+                      {backgroundData.memoryFacts.map((f: any, i: number) => (
+                        <div key={i}>
+                          <div className="py-2.5">
+                            <div className="text-[10px] text-zinc-500 uppercase tracking-wide mb-1">{f.fact_type.replace(/_/g, ' ')}</div>
+                            <div className="text-xs text-zinc-200 leading-relaxed">{f.value}</div>
+                          </div>
+                          {i < backgroundData.memoryFacts.length - 1 && (
+                            <div className="border-t border-white/[0.04]" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Network — grouped by degree */}
+                {backgroundData.connections.length > 0 && (() => {
+                  const firstDegree = backgroundData.connections.filter((c: any) => c.connection_degree === '1st' || (!c.connection_degree && !c.shared_connections));
+                  const secondDegree = backgroundData.connections.filter((c: any) => c.connection_degree === '2nd' || (!c.connection_degree && c.shared_connections));
+                  const orgId = item.relationship?.currentStage
+                    ? null // orgId pulled from store below
+                    : null;
+
+                  async function openContact(conn: any) {
+                    if (onOpenContact) {
+                      await onOpenContact(conn.id);
+                    }
+                  }
+
+                  function DegreeGroup({ contacts, degree, color }: {
+                    contacts: any[];
+                    degree: '1st' | '2nd';
+                    color: 'green' | 'blue';
+                  }) {
+                    const [expanded, setExpanded] = React.useState(false);
+                    const PREVIEW = 2;
+                    const shown = expanded ? contacts : contacts.slice(0, PREVIEW * 4);
+                    const colorMap = {
+                      green: 'bg-emerald-950/40 border-emerald-500/25 text-emerald-300 hover:border-emerald-400/40',
+                      blue: 'bg-blue-950/40 border-blue-500/25 text-blue-300 hover:border-blue-400/40',
+                    };
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${color === 'green' ? 'text-emerald-500' : 'text-blue-500'}`}>
+                            {degree} degree · {contacts.length}
+                          </span>
+                          {contacts.length > PREVIEW * 4 && (
+                            <button onClick={() => setExpanded(v => !v)} className="text-[9px] text-zinc-500 hover:text-zinc-300 transition-colors">
+                              {expanded ? 'Show less' : `+${contacts.length - PREVIEW * 4} more`}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {shown.map((conn: any, i: number) => (
+                            <div key={i} className="relative group">
+                              <button
+                                onClick={() => openContact(conn)}
+                                className={`text-[11px] px-2.5 py-1 rounded-full border transition-all cursor-pointer ${colorMap[color]}`}
+                              >
+                                {conn.first_name} {conn.last_name}
+                              </button>
+                              {conn.shared_connections && (
+                                <div className="pointer-events-none absolute bottom-full left-0 mb-1.5 w-max max-w-[220px] opacity-0 group-hover:opacity-100 transition-opacity z-30 bg-zinc-900 border border-white/10 rounded-lg px-2.5 py-1.5 shadow-xl">
+                                  <div className="text-[9px] text-zinc-500 mb-0.5">Via mutual connections</div>
+                                  <div className="text-[10px] text-zinc-200 leading-snug">{conn.shared_connections}</div>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div>
+                      <div className="text-[9px] font-mono font-bold uppercase tracking-wider text-rios-text-muted mb-3">
+                        Network
+                        <span className="ml-1.5 text-zinc-600 normal-case font-normal">
+                          {firstDegree.length > 0 && `1st · ${firstDegree.length}`}
+                          {firstDegree.length > 0 && secondDegree.length > 0 && '  '}
+                          {secondDegree.length > 0 && `2nd · ${secondDegree.length}`}
+                        </span>
+                      </div>
+                      <div className="space-y-3">
+                        {firstDegree.length > 0 && <DegreeGroup contacts={firstDegree} degree="1st" color="green" />}
+                        {firstDegree.length > 0 && secondDegree.length > 0 && <div className="border-t border-white/[0.04]" />}
+                        {secondDegree.length > 0 && <DegreeGroup contacts={secondDegree} degree="2nd" color="blue" />}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {backgroundData.employmentHistory.length === 0 && backgroundData.memoryFacts.length === 0 && backgroundData.connections.length === 0 && (
+                  <p className="text-xs text-zinc-600 text-center py-2">No enrichment data yet — press E to enrich this contact.</p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* 2. Scrollable Advisor Body Content */}

@@ -222,6 +222,9 @@ create table contacts (
   updated_at timestamptz not null default now()
 );
 
+grant insert on contacts to anon;
+create policy "dev_anon_insert_contacts" on contacts for insert with check (true);
+
 create index idx_contacts_country on contacts(country);
 
 create trigger trg_contacts_updated_at
@@ -291,6 +294,9 @@ create table relationships (
 
   unique (organisation_id, contact_id)
 );
+
+grant insert on relationships to anon;
+create policy "dev_anon_insert_relationships" on relationships for insert with check (true);
 
 create index idx_relationships_org on relationships(organisation_id);
 create index idx_relationships_contact on relationships(contact_id);
@@ -573,6 +579,70 @@ create policy "dev_anon_read_ai_feedback" on ai_feedback for select using (true)
 create policy "dev_anon_insert_ai_feedback" on ai_feedback for insert with check (true);
 
 -- ============================================================
+-- COMPANIES — first entity in the relationship graph, alongside
+-- contacts. Deliberately org-agnostic, same documented exception as
+-- contacts. Rich/evolving intel lives in custom_attributes JSONB per
+-- doctrine. Deliberately step 1 of a much bigger relationship-graph
+-- direction (mutual connections, projects/technologies as entities,
+-- path-finding, visualization) — all explicitly deferred to its own
+-- dedicated session.
+-- ============================================================
+
+create extension if not exists pg_trgm;
+
+create table companies (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  domain text unique,
+  linkedin_url text unique,
+  industry text,
+  hq_country text,
+  employee_count_range text,
+  description text,
+  custom_attributes jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table companies add column website text;
+alter table companies add column hq_address text;
+alter table companies add column linkedin_follower_count int;
+
+create index idx_companies_name on companies(name);
+create index idx_companies_name_trgm on companies using gin (name gin_trgm_ops);
+
+create trigger trg_companies_updated_at
+  before update on companies
+  for each row execute function set_updated_at();
+
+alter table relationships add column company_id uuid references companies(id) on delete set null;
+create index idx_relationships_company_id on relationships(company_id);
+
+grant select, insert, update on companies to anon;
+create policy "dev_anon_read_companies" on companies for select using (true);
+create policy "dev_anon_insert_companies" on companies for insert with check (true);
+create policy "dev_anon_update_companies" on companies for update using (true);
+
+create or replace function search_similar_companies(search_name text, min_similarity float default 0.3)
+returns table (
+  id uuid, name text, domain text, linkedin_url text, industry text,
+  hq_country text, employee_count_range text, description text,
+  custom_attributes jsonb, similarity real
+)
+language sql stable
+as $$
+  select c.id, c.name, c.domain, c.linkedin_url, c.industry, c.hq_country,
+         c.employee_count_range, c.description, c.custom_attributes,
+         similarity(c.name, search_name) as similarity
+  from companies c
+  where similarity(c.name, search_name) > min_similarity
+  order by similarity desc
+  limit 5;
+$$;
+
+grant execute on function search_similar_companies(text, float) to anon;
+
+-- ============================================================
 -- DAILY RELATIONSHIP SWEEP — one-time, project-wide cron setup.
 -- Registered ONCE, ever, for the whole project — NOT per-organisation.
 -- The sweep function itself loops through every row in `organisations`
@@ -606,4 +676,47 @@ create extension if not exists pg_net;
 --   );
 --   $$
 -- );
+
+create table contact_connections (
+  id uuid primary key default gen_random_uuid(),
+  contact_id_a uuid not null references contacts(id) on delete cascade,
+  contact_id_b uuid not null references contacts(id) on delete cascade,
+  source text not null default 'linkedin_mutual', -- 'linkedin_mutual' | 'manual'
+  discovered_via_relationship_id uuid references relationships(id) on delete set null, -- whose enrichment surfaced this
+  created_at timestamptz not null default now(),
+
+  unique (contact_id_a, contact_id_b)
+);
+
+alter table contact_connections add column if not exists shared_connections text;
+
+alter table contact_connections add column if not exists connection_degree text;
+
+grant update on contact_connections to anon;
+create policy "dev_anon_update_contact_connections" on contact_connections for update using (true);
+
+create index idx_contact_connections_a on contact_connections(contact_id_a);
+create index idx_contact_connections_b on contact_connections(contact_id_b);
+
+create table contact_employment_history (
+  id uuid primary key default gen_random_uuid(),
+  contact_id uuid not null references contacts(id) on delete cascade,
+  company_id uuid references companies(id) on delete set null,
+  company_name_raw text not null, -- fallback if this specific employer hasn't been deduped into a real company row yet
+  position text,
+  start_date date,
+  end_date date, -- null = current role
+  created_at timestamptz not null default now()
+);
+
+create index idx_employment_history_contact on contact_employment_history(contact_id);
+create index idx_employment_history_company on contact_employment_history(company_id);
+
+grant select, insert on contact_employment_history to anon;
+create policy "dev_anon_read_employment_history" on contact_employment_history for select using (true);
+create policy "dev_anon_insert_employment_history" on contact_employment_history for insert with check (true);
+
+grant select, insert on contact_connections to anon;
+create policy "dev_anon_read_contact_connections" on contact_connections for select using (true);
+create policy "dev_anon_insert_contact_connections" on contact_connections for insert with check (true);
 -- ============================================================
