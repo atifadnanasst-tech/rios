@@ -33,6 +33,7 @@ export interface Relationship {
   suggestedStage: RelationshipStage | null;
   location: string;
   starred: boolean;
+  isCommitted: boolean;
   score: number;
   status: 'Hot' | 'Warm' | 'Cold' | 'Stable';
   commercialGoal: string;

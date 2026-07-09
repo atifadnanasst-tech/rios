@@ -288,8 +288,12 @@ export async function parseLinkedinEnrichment(
   firstDegreeText?: string,
   secondDegreeText?: string
 ): Promise<ParsedEnrichment> {
+  // Read org's configured analysis model
+  const { data: org } = await supabase.from('organisations').select('ai_analysis_model').limit(1).single();
+  const analysisModel = org?.ai_analysis_model || 'gpt-4o-mini';
+
   const { data, error } = await supabase.functions.invoke('parse-linkedin-enrichment', {
-    body: { contactName, linkedinProfileText, companyPageText, firstDegreeText, secondDegreeText },
+    body: { contactName, linkedinProfileText, companyPageText, firstDegreeText, secondDegreeText, analysisModel },
   });
   if (error) throw new Error(`Enrichment parsing failed: ${error.message}`);
   return data as ParsedEnrichment;

@@ -6,7 +6,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { contactName, ownerName, rawText } = await req.json();
+    const { contactName, ownerName, rawText, analysisModel } = await req.json();
 
     if (!rawText || typeof rawText !== 'string' || rawText.trim().length < 10) {
       return new Response(
@@ -73,7 +73,7 @@ ${rawText}
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: analysisModel || 'gpt-4o-mini',
         temperature: 0.1,
         max_tokens: 4000,
         messages: [

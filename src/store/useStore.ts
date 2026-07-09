@@ -1,15 +1,16 @@
 import { create } from 'zustand';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage } from '../types/index.ts';
-import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred, updateRelationshipStage, fetchRelationshipRowById } from '../lib/domain/relationships';
+import { fetchTopRelationships, fetchTodaysWorkItems, completeRelationshipAction, setRelationshipStarred, setRelationshipCommitted, updateRelationshipStage, fetchRelationshipRowById, findOrCreateRelationshipForContact } from '../lib/domain/relationships';
 import { mapTemperatureToStatus, mapRowToRelationship, buildWorkItemFromRelationship } from '../lib/domain/mappers';
 import { supabase } from '../lib/supabaseClient';
 
 interface RIOSState {
   relationships: Relationship[];
   workItems: WorkItem[];
+  completedToday: WorkItem[]; // items completed this session — shown in Completed Today tab
   selectedWorkItemId: string | null;
   selectedWorkItemIds: string[]; // For bulk operations
-  activeQueueTab: 'work-queue' | 'all' | 'starred' | 'commitments';
+  activeQueueTab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived';
   activeCategoryFilter: 'all' | RelationshipCategory;
   searchQuery: string;
   isLoading: boolean;
@@ -21,17 +22,19 @@ interface RIOSState {
   toggleSelectWorkItemForBulk: (id: string) => void;
   selectAllWorkItems: (checked: boolean) => void;
   clearBulkSelection: () => void;
-  setQueueTab: (tab: 'work-queue' | 'all' | 'starred' | 'commitments') => void;
+  setQueueTab: (tab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived') => void;
   setCategoryFilter: (category: 'all' | RelationshipCategory) => void;
   setSearchQuery: (query: string) => void;
   completeWorkItem: (id: string) => void;
   snoozeWorkItem: (id: string) => void;
   updateStage: (relationshipId: string, stage: RelationshipStage) => void;
   bulkComplete: () => void;
+  removeRelationshipsFromQueue: (relationshipIds: string[]) => void;
   bulkSnooze: () => void;
   bulkChangeStage: (stage: RelationshipStage) => void;
   addRelationship: (relationship: Relationship) => void;
   toggleStarred: (relationshipId: string) => void;
+  toggleCommitted: (relationshipId: string) => void;
   refreshRelationshipFields: (relationshipId: string) => Promise<void>;
   openRelationshipById: (relationshipId: string) => Promise<void>;
   addWorkItem: (workItem: WorkItem) => void;
@@ -40,6 +43,7 @@ interface RIOSState {
 export const useStore = create<RIOSState>((set, get) => ({
   relationships: [],
   workItems: [],
+  completedToday: [],
   selectedWorkItemId: null,
   selectedWorkItemIds: [],
   activeQueueTab: 'work-queue',
@@ -51,14 +55,66 @@ export const useStore = create<RIOSState>((set, get) => ({
   initialize: async () => {
     set({ isLoading: true, loadError: null });
     try {
+      const today = new Date().toISOString().slice(0, 10);
       const [relationships, workItems] = await Promise.all([
         fetchTopRelationships(200),
-        fetchTodaysWorkItems(25),
+        fetchTodaysWorkItems(100),
       ]);
+
+      // Rebuild completedToday: relationships touched today via Outreach or Log Activity
+      // Using last_outreach_date = today — persists in DB, no reconstruction needed
+      const { data: touchedToday } = await supabase
+        .from('relationships')
+        .select('id, company, position, relationship_temperature, next_best_action, stage, icp_score, icp_tier, touch_number, starred, is_committed, suggested_stage, outreach_status, next_touch_due, last_outreach_channel, contacts(first_name, last_name, country)')
+        .eq('last_outreach_date', today)
+        .order('icp_score', { ascending: false });
+
+      const completedToday: WorkItem[] = (touchedToday || []).map((r: any) => {
+        const contact = Array.isArray(r.contacts) ? r.contacts[0] : r.contacts;
+        const name = contact ? [contact.first_name, contact.last_name].filter(Boolean).join(' ') : 'Unknown';
+        return {
+          id: `completed-${r.id}`,
+          relationshipId: r.id,
+          relationship: {
+            id: r.id,
+            name,
+            avatar: name.charAt(0).toUpperCase(),
+            company: r.company || '',
+            position: r.position || '',
+            location: contact?.country || '',
+            starred: r.starred,
+            isCommitted: r.is_committed,
+            suggestedStage: r.suggested_stage || null,
+            score: r.icp_score,
+            status: r.relationship_temperature === 'Hot' ? 'Hot' : r.relationship_temperature === 'Warm' ? 'Warm' : 'Cold',
+            commercialGoal: '',
+            currentStage: r.stage,
+            suggestedChannel: 'linkedin',
+            nextBestAction: r.next_best_action || 'Follow up in 7 days',
+            aiConfidence: 80,
+            tags: [],
+            whyToday: 'Outreached today',
+          },
+          category: 'building' as const,
+          description: 'Outreached today — follow up in 7 days',
+          priority: r.icp_tier === 'Tier_A' ? 'High' : 'Medium' as const,
+          dueTime: 'Today',
+          channel: 'linkedin' as const,
+          completed: true,
+          starred: r.starred,
+        };
+      });
+
+      // Remove completed items from active queue
+      const completedRelIds = new Set(completedToday.map(i => i.relationshipId));
+      const activeWorkItems = workItems.filter(item => !completedRelIds.has(item.relationshipId));
+
+      console.log('[RIOS init] relationships:', relationships.length, 'work items:', activeWorkItems.length, 'completed today:', completedToday.length);
       set({
         relationships,
-        workItems,
-        selectedWorkItemId: null, // nothing auto-selected — user chooses explicitly
+        workItems: activeWorkItems,
+        completedToday,
+        selectedWorkItemId: null,
         isLoading: false,
       });
     } catch (err) {
@@ -174,6 +230,27 @@ export const useStore = create<RIOSState>((set, get) => ({
     }));
   },
 
+  // Removes work items from the queue by relationship ID — used after
+  // Outreach and Log Activity to immediately reflect completion in the
+  // UI without waiting for a full store reload
+  removeRelationshipsFromQueue: (relationshipIds: string[]) => {
+    const idSet = new Set(relationshipIds);
+    set((state) => {
+      const completed = state.workItems.filter(item => idSet.has(item.relationshipId));
+      const remaining = state.workItems.filter(item => !idSet.has(item.relationshipId));
+      return {
+        workItems: remaining,
+        completedToday: [
+          ...state.completedToday,
+          ...completed.map(item => ({ ...item, completed: true })),
+        ],
+        selectedWorkItemIds: state.selectedWorkItemIds.filter(
+          id => !completed.find(i => i.id === id)
+        ),
+      };
+    });
+  },
+
   bulkSnooze: () => {
     const { selectedWorkItemIds } = get();
     set((state) => ({
@@ -245,6 +322,27 @@ export const useStore = create<RIOSState>((set, get) => ({
     });
   },
 
+  toggleCommitted: (relationshipId) => {
+    const rel = get().relationships.find((r) => r.id === relationshipId);
+    if (!rel) return;
+    const newValue = !rel.isCommitted;
+
+    set((state) => ({
+      relationships: state.relationships.map((r) =>
+        r.id === relationshipId ? { ...r, isCommitted: newValue } : r
+      ),
+      workItems: state.workItems.map((item) =>
+        item.relationshipId === relationshipId
+          ? { ...item, relationship: { ...item.relationship, isCommitted: newValue } }
+          : item
+      ),
+    }));
+
+    setRelationshipCommitted(relationshipId, newValue).catch((err) => {
+      console.error('Failed to persist committed toggle:', err);
+    });
+  },
+
   // Surgically updates ONLY the fields that a background AI recompute (or
   // any other live update) actually changed — on the ONE relationship
   // affected. Deliberately does NOT re-fetch or re-synthesize the whole
@@ -257,7 +355,7 @@ export const useStore = create<RIOSState>((set, get) => ({
   refreshRelationshipFields: async (relationshipId) => {
     const { data, error } = await supabase
       .from('relationships')
-      .select('relationship_temperature, outreach_status, next_best_action, next_touch_due, stage, icp_score, suggested_stage')
+      .select('relationship_temperature, outreach_status, next_best_action, next_touch_due, stage, icp_score, suggested_stage, touch_number, cadence_step')
       .eq('id', relationshipId)
       .single();
 
@@ -272,6 +370,7 @@ export const useStore = create<RIOSState>((set, get) => ({
       currentStage: data.stage as any,
       score: data.icp_score,
       suggestedStage: (data.suggested_stage as any) || null,
+      touchNumber: data.touch_number ?? 0,
     };
 
     set((state) => ({
@@ -345,7 +444,11 @@ export const getFilteredWorkItems = (state: ReturnType<typeof useStore.getState>
   if (state.activeQueueTab === 'starred') {
     items = items.filter(item => item.relationship.starred);
   } else if (state.activeQueueTab === 'commitments') {
-    items = items.filter(item => item.category === 'commitment');
+    items = items.filter(item => item.relationship.isCommitted);
+  } else if (state.activeQueueTab === 'completed') {
+    return state.completedToday;
+  } else if (state.activeQueueTab === 'archived') {
+    return [];
   }
 
   // Category filters

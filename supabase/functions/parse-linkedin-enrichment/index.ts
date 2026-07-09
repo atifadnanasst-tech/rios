@@ -6,7 +6,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { contactName, linkedinProfileText, companyPageText, firstDegreeText, secondDegreeText } = await req.json();
+    const { contactName, linkedinProfileText, companyPageText, firstDegreeText, secondDegreeText, analysisModel } = await req.json();
 
     if (!contactName) {
       return new Response(JSON.stringify({ error: 'contactName is required.' }), {
@@ -98,7 +98,7 @@ Return ONLY valid JSON, no markdown:
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: analysisModel || 'gpt-4o-mini',
         temperature: 0.1,
         max_tokens: 6000,
         messages: [

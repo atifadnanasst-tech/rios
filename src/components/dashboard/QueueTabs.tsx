@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 
-type QueueTabId = 'work-queue' | 'all' | 'starred' | 'commitments';
+type QueueTabId = 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived';
 
 interface QueueTabOption {
   id: QueueTabId;
@@ -21,10 +21,12 @@ export const QueueTabs: React.FC<QueueTabsProps> = ({
   activeTab,
   onChangeTab,
   options = [
-    { id: 'work-queue', label: 'Work Queue' },
-    { id: 'all', label: 'All Work' },
+    { id: 'work-queue', label: 'Daily Work Queue' },
+    { id: 'all', label: 'All Contacts' },
     { id: 'starred', label: 'Starred' },
-    { id: 'commitments', label: 'My Commitments' }
+    { id: 'commitments', label: 'Committed' },
+    { id: 'completed', label: 'Completed Today' },
+    { id: 'archived', label: 'Archived' },
   ] as QueueTabOption[],
   className = '',
   id
@@ -36,7 +38,6 @@ export const QueueTabs: React.FC<QueueTabsProps> = ({
     >
       {options.map((tab) => {
         const isActive = tab.id === activeTab;
-
         return (
           <button
             key={tab.id}
@@ -51,8 +52,6 @@ export const QueueTabs: React.FC<QueueTabsProps> = ({
                 {tab.count}
               </span>
             )}
-            
-            {/* Sliding Underline Indicator using layoutId */}
             {isActive && (
               <motion.div
                 layoutId="activeQueueTabIndicator"

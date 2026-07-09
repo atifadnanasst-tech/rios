@@ -1,48 +1,31 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
-import { runRecompute } from '../_shared/recomputeCore.ts';
 
-// Temperature tier for sorting — lower number = higher priority.
-const TIER_RANK: Record<string, number> = { Hot: 1, Warm: 2, Cold: 3 };
+// Daily relationship sweep — pure date-surfacing machine, zero AI calls.
+//
+// Two funnels per the RIOS cadence model:
+//
+// Funnel 1 (Cadence): touch > 0 but no recent reply — contacts on a
+//   deterministic 7→15→21→30→45 day cadence. The sweep just checks
+//   whether their next_touch_due date has arrived and surfaces them.
+//   No AI. No recompute. Pure date arithmetic.
+//
+// Funnel 2 (Conversation): contact replied — AI fires ONCE at reply time
+//   (user-triggered via Paste Reply), sets next_touch_due then. The sweep
+//   just surfaces them when that date arrives. Again, no cron AI call.
+//
+// New contacts (touch = 0): selected by ICP tier/score, given
+//   next_touch_due = today so they surface in the daily queue. No AI.
+//
+// This design means the cron costs $0 in API calls, every day.
 
-// How many recompute calls to run concurrently per batch. Now that this
-// calls runRecompute() directly in-process (no cross-function invocation,
-// no Supabase per-trace budget to worry about), the only real ceiling is
-// OpenAI's own rate limits — kept modest and conservative regardless.
-const BATCH_SIZE = 5;
+const CADENCE_DAYS = [7, 15, 21, 30, 45];
 
-type CandidateRow = {
-  id: string;
-  relationship_temperature: string;
-  last_reply_date: string | null;
-  last_outreach_date: string | null;
-  icp_score: number;
-};
-
-function isWaitingForYou(row: CandidateRow): boolean {
-  if (!row.last_reply_date) return false;
-  if (!row.last_outreach_date) return true;
-  return new Date(row.last_reply_date) > new Date(row.last_outreach_date);
-}
-
-function sortByPriority(rows: CandidateRow[]): CandidateRow[] {
-  return [...rows].sort((a, b) => {
-    const aWaiting = isWaitingForYou(a) ? 0 : 1;
-    const bWaiting = isWaitingForYou(b) ? 0 : 1;
-    if (aWaiting !== bWaiting) return aWaiting - bWaiting;
-
-    const aTier = TIER_RANK[a.relationship_temperature] ?? 4;
-    const bTier = TIER_RANK[b.relationship_temperature] ?? 4;
-    if (aTier !== bTier) return aTier - bTier;
-
-    return b.icp_score - a.icp_score;
-  });
-}
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+function nextCadenceDate(cadenceStep: number): string {
+  const days = CADENCE_DAYS[cadenceStep % CADENCE_DAYS.length];
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 Deno.serve(async (req) => {
@@ -54,138 +37,79 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(supabaseUrl, serviceRoleKey);
   const today = new Date().toISOString().slice(0, 10);
-  const openaiApiKey = Deno.env.get('OPENAI_API_KEY')!;
-
-  // Calls the shared logic directly, in-process — NOT via fetch() to the
-  // other Edge Function. That HTTP-based design previously hit a hard
-  // wall at the same count every run ("Rate limit exceeded for trace...")
-  // — confirmed via Supabase's own docs to be a per-trace invocation
-  // budget shared by every downstream call from one parent execution,
-  // which does not reset by waiting. Calling the logic directly
-  // eliminates the problem at its root instead of working around it.
-  async function recompute(relationshipId: string): Promise<{ id: string; ok: boolean; error?: string }> {
-    try {
-      await runRecompute(supabase, relationshipId, 'cron', openaiApiKey);
-      return { id: relationshipId, ok: true };
-    } catch (err) {
-      return { id: relationshipId, ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
-
-  async function processBatched(label: string, ids: string[]): Promise<{ ok: number; failed: number }> {
-    let ok = 0;
-    let failed = 0;
-    const batches = chunk(ids, BATCH_SIZE);
-    console.log(`[${label}] Starting: ${ids.length} candidates in ${batches.length} batch(es) of up to ${BATCH_SIZE}.`);
-
-    for (let i = 0; i < batches.length; i++) {
-      const results = await Promise.allSettled(batches[i].map((id) => recompute(id)));
-      for (const r of results) {
-        if (r.status === 'fulfilled' && r.value.ok) {
-          ok++;
-        } else {
-          failed++;
-          const detail = r.status === 'fulfilled' ? r.value.error : String(r.reason);
-          console.error(`[${label}] Failed:`, detail);
-        }
-      }
-      console.log(`[${label}] Batch ${i + 1}/${batches.length} done — running total: ${ok} ok, ${failed} failed.`);
-    }
-    return { ok, failed };
-  }
 
   async function runSweep() {
-    try {
-      const { data: orgs, error: orgsError } = await supabase
-        .from('organisations')
-        .select('id, daily_new_touch_cap, daily_sweep_hour_utc, daily_sweep_minute_utc, daily_sweep_last_run_date');
-      if (orgsError) throw new Error(`Failed to load organisations: ${orgsError.message}`);
+    const { data: orgs, error: orgsError } = await supabase
+      .from('organisations')
+      .select('id, daily_new_touch_cap, daily_sweep_hour_utc, daily_sweep_minute_utc, daily_sweep_last_run_date');
+    if (orgsError) { console.error('Failed to load orgs:', orgsError.message); return; }
 
-      console.log(`Sweep starting for ${today} — ${(orgs || []).length} organisation(s).`);
-
-      let totalFollowUpsOk = 0;
-      let totalNewTouchesOk = 0;
-      let totalFailed = 0;
-
-      for (const org of orgs || []) {
-        // This function is meant to be scheduled frequently (e.g. every
-        // 15 minutes) via pg_cron — the FIXED schedule never needs to
-        // change. What actually varies per organisation is this gate:
-        // only do real work once, at the configured hour, once per day.
-        // Changing daily_sweep_hour_utc later (e.g. from a future
-        // Settings screen) takes effect immediately, with zero need to
-        // ever touch the pg_cron schedule itself again.
-        const currentUtcHour = new Date().getUTCHours();
-        const currentUtcMinute = new Date().getUTCMinutes();
-        const alreadyRanToday = org.daily_sweep_last_run_date === today;
-        if (
-          currentUtcHour !== org.daily_sweep_hour_utc ||
+    for (const org of orgs || []) {
+      const currentUtcHour = new Date().getUTCHours();
+      const currentUtcMinute = new Date().getUTCMinutes();
+      const alreadyRanToday = org.daily_sweep_last_run_date === today;
+      if (currentUtcHour !== org.daily_sweep_hour_utc ||
           currentUtcMinute !== org.daily_sweep_minute_utc ||
-          alreadyRanToday
-        ) {
-          continue;
-        }
+          alreadyRanToday) continue;
 
-        const baseFilter = supabase
+      console.log(`Sweep starting for ${today}, org ${org.id}`);
+      let newTouchCount = 0;
+      let cadenceCount = 0;
+
+      // ── Funnel 1: cadence contacts whose next_touch_due arrived ──────────
+      // These already have their date set from a previous sweep or touch log.
+      // Nothing to update — fetchTodaysWorkItems already surfaces them via
+      // the `next_touch_due <= today` query. Nothing to do here.
+      // We just log the count for visibility.
+      const { count: overdueCount } = await supabase
+        .from('relationships')
+        .select('id', { count: 'exact', head: true })
+        .eq('organisation_id', org.id)
+        .not('outreach_status', 'in', '("opted_out","do_not_contact")')
+        .is('archived_at', null)
+        .gt('touch_number', 0)
+        .lte('next_touch_due', today);
+      cadenceCount = overdueCount || 0;
+
+      // ── New contacts (touch = 0): select top N by ICP, set date = today ──
+      const { data: newCandidates, error: newErr } = await supabase
+        .from('relationships')
+        .select('id')
+        .eq('organisation_id', org.id)
+        .eq('touch_number', 0)
+        .not('outreach_status', 'in', '("opted_out","do_not_contact")')
+        .is('archived_at', null)
+        .is('next_touch_due', null)
+        .order('icp_score', { ascending: false })
+        .limit(org.daily_new_touch_cap);
+
+      if (newErr) { console.error('Failed to fetch new candidates:', newErr.message); }
+
+      if (newCandidates && newCandidates.length > 0) {
+        const ids = newCandidates.map((r: any) => r.id);
+        const { error: updateErr } = await supabase
           .from('relationships')
-          .select('id, relationship_temperature, last_reply_date, last_outreach_date, icp_score, touch_number, next_touch_due, archived_at, excluded_until, outreach_status')
-          .eq('organisation_id', org.id)
-          .not('outreach_status', 'in', '("opted_out","do_not_contact")')
-          .is('archived_at', null)
-          .or(`excluded_until.is.null,excluded_until.lte.${today}`);
-
-        const { data: followUpsRaw, error: followUpsError } = await baseFilter
-          .lte('next_touch_due', today)
-          .gt('touch_number', 0);
-        if (followUpsError) {
-          console.error(`Follow-up query failed for org ${org.id}:`, followUpsError.message);
-        }
-
-        const sortedFollowUps = sortByPriority((followUpsRaw || []) as CandidateRow[]);
-        const followUpResult = await processBatched('follow-ups', sortedFollowUps.map((r) => r.id));
-        totalFollowUpsOk += followUpResult.ok;
-        totalFailed += followUpResult.failed;
-
-        const { data: freshRaw, error: freshError } = await supabase
-          .from('relationships')
-          .select('id, icp_score')
-          .eq('organisation_id', org.id)
-          .eq('touch_number', 0)
-          .not('outreach_status', 'in', '("opted_out","do_not_contact")')
-          .is('archived_at', null)
-          .or(`excluded_until.is.null,excluded_until.lte.${today}`)
-          .order('icp_score', { ascending: false })
-          .limit(org.daily_new_touch_cap);
-        if (freshError) {
-          console.error(`Fresh-candidate query failed for org ${org.id}:`, freshError.message);
-        }
-
-        const freshResult = await processBatched('new-touches', (freshRaw || []).map((r) => r.id));
-        totalNewTouchesOk += freshResult.ok;
-        totalFailed += freshResult.failed;
-
-        // Mark this org as done for today — otherwise the next 15-minute
-        // check, still within the same matching hour, would run it again.
-        const { error: markError } = await supabase
-          .from('organisations')
-          .update({ daily_sweep_last_run_date: today })
-          .eq('id', org.id);
-        if (markError) console.error(`Failed to mark org ${org.id} as swept today:`, markError.message);
+          .update({ next_touch_due: today })
+          .in('id', ids);
+        if (updateErr) console.error('Failed to set next_touch_due for new contacts:', updateErr.message);
+        else newTouchCount = ids.length;
       }
 
-      console.log(
-        `Sweep complete for ${today}: ${totalFollowUpsOk} follow-ups, ${totalNewTouchesOk} new touches, ${totalFailed} failed.`
-      );
-    } catch (err) {
-      console.error('Sweep failed with an unexpected error:', err instanceof Error ? err.message : err);
+      // Mark this org as swept today
+      await supabase
+        .from('organisations')
+        .update({ daily_sweep_last_run_date: today })
+        .eq('id', org.id);
+
+      console.log(`Sweep complete for ${today}: ${cadenceCount} follow-ups due, ${newTouchCount} new touches selected. Zero AI calls.`);
     }
   }
 
-  // @ts-ignore — EdgeRuntime is a Supabase-provided global, not a standard Deno type
+  // @ts-ignore
   EdgeRuntime.waitUntil(runSweep());
 
   return new Response(
-    JSON.stringify({ status: 'started', date: today, note: 'Processing in background — watch the Logs tab for per-batch progress.' }),
+    JSON.stringify({ status: 'started', date: today, note: 'Zero AI calls — pure date surfacing.' }),
     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
   );
 });

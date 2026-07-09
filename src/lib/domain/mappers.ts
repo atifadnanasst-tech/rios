@@ -30,6 +30,7 @@ export type RelationshipRow = {
   outreach_status: string;
   touch_number: number;
   starred: boolean;
+  is_committed: boolean;
   suggested_stage: string | null;
   contacts: {
     first_name: string;
@@ -88,6 +89,7 @@ export function mapRowToRelationship(row: RelationshipRow): Relationship {
     score: row.icp_score,
     status: mapTemperatureToStatus(row.relationship_temperature),
     starred: row.starred,
+    isCommitted: row.is_committed,
     suggestedStage: (row.suggested_stage as any) || null,
     commercialGoal: row.goal,
     currentStage: row.stage,
@@ -135,7 +137,7 @@ export function buildWorkItemFromRelationship(row: RelationshipRow): WorkItem {
     id: `synthetic-${row.id}`,
     relationshipId: row.id,
     relationship,
-    category: mapOutreachStatusToCategory(row.outreach_status, row.next_touch_due),
+    category: mapOutreachStatusToCategory(row.outreach_status, row.next_touch_due, row.touch_number, row.icp_tier),
     description: row.next_best_action || 'Review this relationship',
     priority: row.icp_tier === 'Tier_A' ? 'High' : row.icp_tier === 'Tier_B' ? 'Medium' : 'Low',
     // The schema only tracks a due DATE, not a time of day, so this is a
@@ -151,8 +153,16 @@ export function buildWorkItemFromRelationship(row: RelationshipRow): WorkItem {
   } as WorkItem;
 }
 
-function mapOutreachStatusToCategory(status: string, nextTouchDue: string | null): WorkItem['category'] {
+function mapOutreachStatusToCategory(status: string, nextTouchDue: string | null, touchNumber: number, icpTier: string | null): WorkItem['category'] {
+  // Critical — Tier A contact with an overdue follow-up. Highest urgency.
+  if (icpTier === 'Tier_A' && nextTouchDue && new Date(nextTouchDue) < new Date()) return 'critical';
+  // Commercial — actively engaged in a conversation right now.
   if (status === 'engaged') return 'commercial';
-  if (nextTouchDue && new Date(nextTouchDue) < new Date()) return 'commitment';
+  // Building — been touched at least once, relationship is in progress.
+  if (touchNumber > 0) return 'building';
+  // Nurture — never been touched, waiting to be initiated.
   return 'nurture';
+  // NOTE: 'commitment' category is no longer set algorithmically here.
+  // It is now a purely manual signal — the bookmark toggle sets
+  // is_committed = true, and the "My Commitments" tab filters on that.
 }

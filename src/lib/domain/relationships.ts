@@ -7,7 +7,7 @@ const RELATIONSHIP_SELECT = `
   id, company, position, goal, stage, icp_score, icp_tier,
   relationship_temperature, next_best_action, last_outreach_channel,
   classification_confidence, persona, company_type, next_touch_due,
-  outreach_status, touch_number, starred, suggested_stage,
+  outreach_status, touch_number, starred, suggested_stage, is_committed,
   contacts ( first_name, last_name, country )
 `;
 
@@ -18,6 +18,31 @@ const RELATIONSHIP_SELECT = `
 type RawRow = Omit<RelationshipRow, 'contacts'> & { contacts: RelationshipRow['contacts'][] | RelationshipRow['contacts'] };
 function normalizeRow(row: RawRow): RelationshipRow {
   return { ...row, contacts: Array.isArray(row.contacts) ? row.contacts[0] ?? null : row.contacts } as RelationshipRow;
+}
+
+// Real server-side paginated browse of ALL contacts — not filtered by
+// daily work logic. Used by the "All Contacts" tab.
+export async function fetchAllRelationshipsPaginated(
+  page: number,
+  pageSize: number,
+  sortBy: 'icp_score' | 'name' | 'last_touch' = 'icp_score'
+): Promise<{ items: WorkItem[]; total: number }> {
+  const offset = (page - 1) * pageSize;
+
+  const sortColumn = sortBy === 'name' ? 'contacts(first_name)' : sortBy === 'last_touch' ? 'last_outreach_date' : 'icp_score';
+
+  const { data, error, count } = await supabase
+    .from('relationships')
+    .select(RELATIONSHIP_SELECT, { count: 'exact' })
+    .neq('outreach_status', 'opted_out')
+    .neq('outreach_status', 'do_not_contact')
+    .is('archived_at', null)
+    .order('icp_score', { ascending: false })
+    .range(offset, offset + pageSize - 1);
+
+  if (error) throw new Error(`Failed to fetch all contacts: ${error.message}`);
+  const items = ((data as unknown as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
+  return { items, total: count || 0 };
 }
 
 export async function fetchRelationshipRowById(relationshipId: string): Promise<RelationshipRow | null> {
@@ -48,7 +73,7 @@ export async function fetchTopRelationships(limit = 25): Promise<Relationship[]>
 // table first (empty today) and falls back to synthesizing from top
 // relationships. Once a real engine writes real rows, this function is
 // the ONLY place that needs to change; the UI stays untouched.
-export async function fetchTodaysWorkItems(limit = 25): Promise<WorkItem[]> {
+export async function fetchTodaysWorkItems(limit = 100): Promise<WorkItem[]> {
   const { data: realItems, error: workItemsError } = await supabase
     .from('work_items')
     .select('*, relationships(*, contacts(*))')
@@ -59,22 +84,78 @@ export async function fetchTodaysWorkItems(limit = 25): Promise<WorkItem[]> {
   if (workItemsError) throw new Error(`Failed to fetch work_items: ${workItemsError.message}`);
 
   if (realItems && realItems.length > 0) {
-    // TODO: once work_items has real rows, map them here properly.
-    // Left unimplemented deliberately — no real rows exist yet to test against.
     throw new Error('Real work_items found but mapping not yet implemented — tell Claude to add this.');
   }
 
-  // Fallback: synthesize from relationships due for action.
-  const { data, error } = await supabase
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Priority 1: overdue or due today AND already touched — real follow-ups
+  const { data: followUps, error: followUpsError } = await supabase
     .from('relationships')
     .select(RELATIONSHIP_SELECT)
     .neq('outreach_status', 'opted_out')
     .neq('outreach_status', 'do_not_contact')
+    .is('archived_at', null)
+    .gt('touch_number', 0)
+    .not('next_touch_due', 'is', null)
+    .lte('next_touch_due', today)
     .order('icp_score', { ascending: false })
     .limit(limit);
 
-  if (error) throw new Error(`Failed to fetch relationships for work items: ${error.message}`);
-  return ((data as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
+  if (followUpsError) throw new Error(`Failed to fetch follow-ups: ${followUpsError.message}`);
+  const results = ((followUps as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
+  const loadedIds = new Set(results.map(r => r.relationshipId));
+
+  // Priority 2: today's cron-selected untouched contacts (next_touch_due = today)
+  // The cron sets next_touch_due = today for touch=0 contacts it selected,
+  // so this surfaces exactly who the cron chose for today's outreach
+  if (results.length < limit) {
+    const remaining = limit - results.length;
+    const { data: todaySelected, error: todayError } = await supabase
+      .from('relationships')
+      .select(RELATIONSHIP_SELECT)
+      .neq('outreach_status', 'opted_out')
+      .neq('outreach_status', 'do_not_contact')
+      .is('archived_at', null)
+      .eq('touch_number', 0)
+      .eq('next_touch_due', today)
+      .order('icp_score', { ascending: false })
+      .limit(remaining);
+
+    if (!todayError && todaySelected) {
+      const extra = ((todaySelected as RawRow[]) || [])
+        .map(normalizeRow)
+        .map(buildWorkItemFromRelationship)
+        .filter(item => !loadedIds.has(item.relationshipId));
+      extra.forEach(item => { results.push(item); loadedIds.add(item.relationshipId); });
+    }
+  }
+
+  // Priority 3: fill any remaining slots with top ICP untouched contacts
+  // (before cron has run, or if quota wasn't fully filled)
+  if (results.length < limit) {
+    const remaining = limit - results.length;
+    const { data: fallback, error: fallbackError } = await supabase
+      .from('relationships')
+      .select(RELATIONSHIP_SELECT)
+      .neq('outreach_status', 'opted_out')
+      .neq('outreach_status', 'do_not_contact')
+      .is('archived_at', null)
+      .eq('touch_number', 0)
+      .is('next_touch_due', null)
+      .order('icp_score', { ascending: false })
+      .limit(remaining);
+
+    if (!fallbackError && fallback) {
+      const extra = ((fallback as RawRow[]) || [])
+        .map(normalizeRow)
+        .map(buildWorkItemFromRelationship)
+        .filter(item => !loadedIds.has(item.relationshipId));
+      results.push(...extra);
+    }
+  }
+
+  return results;
 }
 
 // "Complete" a synthesized work item: since there's no real work_item row
@@ -105,6 +186,11 @@ export async function completeRelationshipAction(relationshipId: string, actionT
 export async function setRelationshipStarred(relationshipId: string, starred: boolean): Promise<void> {
   const { error } = await supabase.from('relationships').update({ starred }).eq('id', relationshipId);
   if (error) throw new Error(`Failed to update starred: ${error.message}`);
+}
+
+export async function setRelationshipCommitted(relationshipId: string, isCommitted: boolean): Promise<void> {
+  const { error } = await supabase.from('relationships').update({ is_committed: isCommitted }).eq('id', relationshipId);
+  if (error) throw new Error(`Failed to update committed: ${error.message}`);
 }
 
 // Accepting an AI-suggested stage advance applies it via the exact same

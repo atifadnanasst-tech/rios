@@ -21,6 +21,7 @@ import { useStore, getFilteredWorkItems } from './store/useStore.ts';
 import { Sidebar } from './components/layout/Sidebar.tsx';
 import { Header } from './components/layout/Header.tsx';
 import { KPICard } from './components/dashboard/KPICard.tsx';
+import { SettingsScreen } from './components/settings/SettingsScreen.tsx';
 import { QueueTabs } from './components/dashboard/QueueTabs.tsx';
 import { CategoryPill } from './components/dashboard/CategoryPill.tsx';
 import { RelationshipMissionCard } from './components/relationship/RelationshipMissionCard.tsx';
@@ -29,7 +30,10 @@ import { BulkToolbar } from './components/relationship/BulkToolbar.tsx';
 import { LogInteractionModal } from './components/modals/LogInteractionModal.tsx';
 import { ImportInteractionsModal } from './components/modals/ImportInteractionsModal.tsx';
 import { LinkedinEnrichmentModal } from './components/modals/LinkedinEnrichmentModal.tsx';
-import { Relationship, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
+import { OutreachPreviewModal } from './components/modals/OutreachPreviewModal.tsx';
+import { LogActivitySheet } from './components/modals/LogActivitySheet.tsx';
+import { SnoozeSheet } from './components/modals/SnoozeSheet.tsx';
+import { Relationship, WorkItem, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
 
 // Converts the frontend's lowercase channel format ('email') to the
 // database's capitalized format ('Email') — a mismatch here previously
@@ -60,6 +64,9 @@ export default function App() {
   const [showPasteReply, setShowPasteReply] = useState(false);
   const [showImportInteractions, setShowImportInteractions] = useState(false);
   const [showEnrichment, setShowEnrichment] = useState(false);
+  const [showOutreach, setShowOutreach] = useState(false);
+  const [showLogActivity, setShowLogActivity] = useState(false);
+  const [showSnooze, setShowSnooze] = useState(false);
 
   // New relationship form fields
   const [newRelName, setNewRelName] = useState('');
@@ -72,26 +79,90 @@ export default function App() {
 
   // Filter lists using the Zustand store selectors
   const filteredWorkItems = getFilteredWorkItems(store);
-  const selectedWorkItem = store.workItems.find(item => item.id === store.selectedWorkItemId) || null;
+  const selectedWorkItem = 
+    store.workItems.find(item => item.id === store.selectedWorkItemId) ||
+    store.completedToday.find(item => item.id === store.selectedWorkItemId) ||
+    null;
 
-  // Pagination — the page controls used to be static decoration (hardcoded
-  // "1 2 3 ... 9" text with no click handlers) while the full list rendered
-  // unsliced underneath regardless of what was "selected." This makes it real.
+  const isAllContactsTab = store.activeQueueTab === 'all';
+
+  // Real KPI metrics — queried once on mount
+  const [advanceCount, setAdvanceCount] = useState<number | null>(null);
+  const [replyRate, setReplyRate] = useState<number | null>(null);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Stage advances today
+    import('./lib/supabaseClient').then(({ supabase }) => {
+      supabase
+        .from('relationship_events')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_type', 'stage_changed')
+        .gte('created_at', today)
+        .then(({ count }) => setAdvanceCount(count || 0));
+
+      // Reply rate: message_received / message_sent in last 7 days
+      Promise.all([
+        supabase
+          .from('relationship_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_type', 'message_sent')
+          .gte('created_at', sevenDaysAgo),
+        supabase
+          .from('relationship_events')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_type', 'message_received')
+          .gte('created_at', sevenDaysAgo),
+      ]).then(([sent, received]) => {
+        const sentCount = sent.count || 0;
+        const receivedCount = received.count || 0;
+        setReplyRate(sentCount > 0 ? Math.round((receivedCount / sentCount) * 100) : 0);
+      });
+    });
+  }, []);
+
+  // All Contacts — server-side paginated, separate state from the daily queue
+  const [allContactsItems, setAllContactsItems] = useState<WorkItem[]>([]);
+  const [allContactsTotal, setAllContactsTotal] = useState(0);
+  const [allContactsPage, setAllContactsPage] = useState(1);
+
+  // Pagination state shared between both tabs
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showPerPageMenu, setShowPerPageMenu] = useState(false);
 
-  const totalPages = Math.max(1, Math.ceil(filteredWorkItems.length / itemsPerPage));
-  const safePage = Math.min(currentPage, totalPages);
-  const pageStart = filteredWorkItems.length === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
-  const pageEnd = Math.min(safePage * itemsPerPage, filteredWorkItems.length);
-  const paginatedWorkItems = filteredWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+  const activePage = isAllContactsTab ? allContactsPage : currentPage;
+  const setActivePage = isAllContactsTab
+    ? (p: number) => setAllContactsPage(p)
+    : (p: number) => setCurrentPage(p);
+
+  const activeTotal = isAllContactsTab ? allContactsTotal : filteredWorkItems.length;
+  const totalPages = Math.max(1, Math.ceil(activeTotal / itemsPerPage));
+  const safePage = Math.min(activePage, totalPages);
+  const pageStart = activeTotal === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
+  const pageEnd = Math.min(safePage * itemsPerPage, activeTotal);
+  const paginatedWorkItems = isAllContactsTab
+    ? allContactsItems
+    : filteredWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+
+  // Load All Contacts from server when that tab is active
+  useEffect(() => {
+    if (!isAllContactsTab) return;
+    import('./lib/domain/relationships').then(({ fetchAllRelationshipsPaginated }) =>
+      fetchAllRelationshipsPaginated(allContactsPage, itemsPerPage)
+        .then(({ items, total }) => { setAllContactsItems(items); setAllContactsTotal(total); })
+        .catch(console.error)
+    );
+  }, [isAllContactsTab, allContactsPage, itemsPerPage]);
 
   // Reset to page 1 whenever the underlying filter/search/tab changes —
   // otherwise you could land on a stale page number that's now empty or
   // out of range for a newly-narrowed result set.
   useEffect(() => {
     setCurrentPage(1);
+    setAllContactsPage(1);
   }, [store.activeQueueTab, store.activeCategoryFilter, store.searchQuery]);
 
   // If exactly one relationship is currently active in the Advisor panel,
@@ -141,20 +212,7 @@ export default function App() {
 
   // Counts of each category
   const getCategoryCount = (cat: RelationshipCategory) => {
-    // Return mock-realistic numbers matching the screenshot if no modifications are made
-    const baseCounts = {
-      critical: 12,
-      commitment: 5,
-      commercial: 7,
-      building: 31,
-      nurture: 42
-    };
-    
-    // Supplement with any real dynamic calculations for added elements
-    const activeAdded = store.workItems.filter(item => !item.completed && item.category === cat).length;
-    const initialBase = baseCounts[cat];
-    // Return relative count
-    return activeAdded > 0 ? initialBase + (activeAdded - 7) : initialBase;
+    return store.workItems.filter(item => !item.completed && item.category === cat).length;
   };
 
   // Select all checkbox handler
@@ -177,7 +235,8 @@ export default function App() {
       avatar: '', // Fallback initials
       company: newRelCompany,
       position: '', // no dedicated input field in this form yet
-      suggestedStage: null, // no AI suggestion exists yet for a brand-new manual entry
+      suggestedStage: null,
+      isCommitted: false,
       location: newRelLocation || 'Remote',
       starred: false,
       score: 60,
@@ -243,10 +302,9 @@ export default function App() {
       <Sidebar
         activeView={activeView}
         onNavigate={(view) => {
-          if (view === 'command-center') {
+          if (view === 'command-center' || view === 'settings') {
             setActiveView(view);
           } else {
-            // Placeholder routes as requested in the goal guidelines
             alert(`"${view.charAt(0).toUpperCase() + view.slice(1)}" is set as a navigation placeholder in this Command Center build.`);
           }
         }}
@@ -262,8 +320,15 @@ export default function App() {
         {/* UPPER HEADER */}
         <Header onShowAIBriefing={() => setShowBriefing(true)} />
 
+        {/* Settings screen — shown when settings nav is active */}
+        {activeView === 'settings' && (
+          <div className="flex-1 flex overflow-hidden">
+            <SettingsScreen />
+          </div>
+        )}
+
         {/* BOTTOM WORKSPACE */}
-        <div className="flex-1 flex min-w-0 overflow-hidden">
+        <div className="flex-1 flex min-w-0 overflow-hidden" style={{ display: activeView === 'settings' ? 'none' : 'flex' }}>
           
           {/* COLUMN 2: CENTER WORK QUEUE CONTENT */}
           <div className="flex-1 flex flex-col min-w-0 overflow-y-auto px-6 py-6 space-y-6">
@@ -272,26 +337,29 @@ export default function App() {
             <div className="flex gap-4 select-none">
               <KPICard
                 title="Today's Mission"
-                value="87"
+                value={String(store.workItems.filter(i => !i.completed).length)}
                 subtext="Work Items"
                 icon={CheckSquare}
               />
               <KPICard
                 title="Est. Time"
-                value="2h 15m"
+                value={(() => {
+                  const mins = store.workItems.filter(i => !i.completed).length * 5;
+                  return mins >= 60 ? `${Math.floor(mins/60)}h ${mins%60}m` : `${mins}m`;
+                })()}
                 subtext="Focus Time"
                 icon={Clock}
               />
               <KPICard
                 title="Advance"
-                value="23"
-                subtext="Relationships"
+                value={advanceCount === null ? '—' : String(advanceCount)}
+                subtext="Stage advances today"
                 icon={Users}
               />
               <KPICard
                 title="Reply Rate"
-                value="42%"
-                subtext="Last 7 Days"
+                value={replyRate === null ? '—' : `${replyRate}%`}
+                subtext="Last 7 days"
                 icon={Globe}
               />
             </div>
@@ -300,6 +368,14 @@ export default function App() {
             <QueueTabs
               activeTab={store.activeQueueTab}
               onChangeTab={(tab) => store.setQueueTab(tab)}
+              options={[
+                { id: 'work-queue', label: 'Daily Work Queue' },
+                { id: 'all', label: 'All Contacts' },
+                { id: 'starred', label: 'Starred' },
+                { id: 'commitments', label: 'Committed' },
+                { id: 'completed', label: 'Completed Today', count: store.completedToday.length || undefined },
+                { id: 'archived', label: 'Archived' },
+              ]}
             />
 
             {/* SEMANTIC CATEGORY FILTER PILLES ROW */}
@@ -398,6 +474,7 @@ export default function App() {
                         }}
                         onChangeStage={(stage) => store.updateStage(item.relationshipId, stage)}
                         onToggleStar={() => store.toggleStarred(item.relationshipId)}
+                        onToggleCommit={() => store.toggleCommitted(item.relationshipId)}
                         onQuickSent={() => store.initialize()}
                       />
                     </motion.div>
@@ -424,7 +501,7 @@ export default function App() {
                 {/* Numeric Pagination Buttons */}
                 <div className="flex items-center gap-1">
                   <button
-                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    onClick={() => setActivePage(Math.max(1, safePage - 1))}
                     disabled={safePage === 1}
                     className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
                   >
@@ -456,7 +533,7 @@ export default function App() {
                       ) : (
                         <button
                           key={p}
-                          onClick={() => setCurrentPage(p)}
+                          onClick={() => setActivePage(p)}
                           className={`w-7 h-7 rounded-md text-xs font-semibold flex items-center justify-center transition-all ${
                             p === safePage
                               ? 'bg-rios-purple text-white font-bold'
@@ -470,7 +547,7 @@ export default function App() {
                   })()}
 
                   <button
-                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    onClick={() => setActivePage(Math.min(totalPages, safePage + 1))}
                     disabled={safePage === totalPages}
                     className="p-1.5 rounded-md hover:bg-white/5 text-zinc-500 hover:text-white transition-all disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-zinc-500"
                   >
@@ -494,7 +571,7 @@ export default function App() {
                           key={n}
                           onClick={() => {
                             setItemsPerPage(n);
-                            setCurrentPage(1);
+                            setActivePage(1);
                             setShowPerPageMenu(false);
                           }}
                           className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 transition-colors ${
@@ -543,22 +620,10 @@ export default function App() {
       {/* FLOATING ACTION BULK TOOLBAR POPUP */}
       <BulkToolbar
         selectedCount={store.selectedWorkItemIds.length}
-        onGenerate={() => {
-          alert(`Triggering automated AI Message drafting for ${store.selectedWorkItemIds.length} relationships.`);
-          store.clearBulkSelection();
-        }}
-        onSnooze={() => {
-          store.bulkSnooze();
-          alert('Selected items snoozed until tomorrow morning.');
-        }}
-        onComplete={() => {
-          store.bulkComplete();
-          alert('Bulk completed selected work items successfully!');
-        }}
-        onChangeStage={(stage) => {
-          store.bulkChangeStage(stage);
-          alert(`Successfully transitioned all selected client cards to "${stage}" stage.`);
-        }}
+        onGenerate={() => setShowOutreach(true)}
+        onSnooze={() => setShowSnooze(true)}
+        onComplete={() => setShowLogActivity(true)}
+        onChangeStage={(stage) => store.bulkChangeStage(stage)}
         onClear={() => store.clearBulkSelection()}
       />
 
@@ -824,6 +889,42 @@ export default function App() {
         onClose={() => setShowEnrichment(false)}
         onEnriched={(relId) => store.refreshRelationshipFields(relId)}
         initialContact={activeContactForModals}
+      />
+
+      <OutreachPreviewModal
+        isOpen={showOutreach}
+        onClose={() => setShowOutreach(false)}
+        relationshipIds={store.selectedWorkItemIds
+          .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
+          .filter(Boolean) as string[]}
+        onOutreached={(ids) => {
+          store.removeRelationshipsFromQueue(ids);
+          store.clearBulkSelection();
+        }}
+      />
+
+      <LogActivitySheet
+        isOpen={showLogActivity}
+        onClose={() => setShowLogActivity(false)}
+        relationshipIds={store.selectedWorkItemIds
+          .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
+          .filter(Boolean) as string[]}
+        onLogged={(ids) => {
+          store.removeRelationshipsFromQueue(ids);
+          store.clearBulkSelection();
+        }}
+      />
+
+      <SnoozeSheet
+        isOpen={showSnooze}
+        onClose={() => setShowSnooze(false)}
+        relationshipIds={store.selectedWorkItemIds
+          .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
+          .filter(Boolean) as string[]}
+        onSnoozed={(ids) => {
+          store.removeRelationshipsFromQueue(ids);
+          store.clearBulkSelection();
+        }}
       />
     </div>
   );

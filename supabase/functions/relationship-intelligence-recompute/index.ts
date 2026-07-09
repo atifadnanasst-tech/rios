@@ -34,7 +34,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    const result = await runRecompute(supabase, relationshipId, trigger || 'manual', apiKey);
+    const { data: rel } = await supabase
+      .from('relationships')
+      .select('organisation_id')
+      .eq('id', relationshipId)
+      .single();
+
+    const { data: org } = await supabase
+      .from('organisations')
+      .select('ai_analysis_model')
+      .eq('id', rel?.organisation_id)
+      .single();
+
+    const analysisModel = org?.ai_analysis_model || 'gpt-4o-mini';
+    const result = await runRecompute(supabase, relationshipId, trigger || 'manual', apiKey, analysisModel);
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

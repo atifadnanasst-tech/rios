@@ -8,6 +8,14 @@ Deno.serve(async (req) => {
 
   try {
     const { relationshipId, incomingMessage, userGuidance } = await req.json();
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    // Read org's configured draft model
+    const { data: rel } = await supabase.from('relationships').select('organisation_id').eq('id', relationshipId).single();
+    const { data: org } = await supabase.from('organisations').select('ai_draft_model').eq('id', rel?.organisation_id).single();
+    const draftModel = org?.ai_draft_model || 'gpt-4o-mini';
 
     if (!relationshipId || !incomingMessage || typeof incomingMessage !== 'string' || incomingMessage.trim().length < 2) {
       return new Response(
@@ -18,9 +26,6 @@ Deno.serve(async (req) => {
 
     // Uses the service role — bypasses RLS entirely, safe here because this
     // only ever runs server-side inside the Edge Function, never in the browser.
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
     // 1. Relationship + contact context
     const { data: rel, error: relError } = await supabase
@@ -121,7 +126,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: draftModel,
         temperature: 0.4,
         max_tokens: 1200,
         messages: [

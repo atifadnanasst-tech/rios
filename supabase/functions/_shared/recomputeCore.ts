@@ -36,7 +36,8 @@ export async function runRecompute(
   supabase: any,
   relationshipId: string,
   trigger: string,
-  openaiApiKey: string
+  openaiApiKey: string,
+  model = 'gpt-4o-mini'
 ): Promise<RecomputeResult> {
   // 1. Relationship + contact context
   const { data: rel, error: relError } = await supabase
@@ -134,7 +135,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
       Authorization: `Bearer ${openaiApiKey}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: model,
       temperature: 0.3,
       max_tokens: 1000,
       messages: [

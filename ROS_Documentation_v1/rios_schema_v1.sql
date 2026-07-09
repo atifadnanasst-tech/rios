@@ -295,6 +295,8 @@ create table relationships (
   unique (organisation_id, contact_id)
 );
 
+alter table relationships add column is_committed boolean not null default false;
+
 grant insert on relationships to anon;
 create policy "dev_anon_insert_relationships" on relationships for insert with check (true);
 
@@ -719,4 +721,18 @@ create policy "dev_anon_insert_employment_history" on contact_employment_history
 grant select, insert on contact_connections to anon;
 create policy "dev_anon_read_contact_connections" on contact_connections for select using (true);
 create policy "dev_anon_insert_contact_connections" on contact_connections for insert with check (true);
+
+-- AI model preferences per organisation
+alter table organisations 
+  add column ai_analysis_model text not null default 'gpt-4o-mini',
+  add column ai_draft_model text not null default 'gpt-4o-mini';
+
+-- Cadence tracking for Funnel 1
+alter table relationships
+  add column cadence_step int not null default 0;
+
+grant select, update on organisations to anon;
+create policy "dev_anon_read_organisations" on organisations for select using (true);
+create policy "dev_anon_update_organisations" on organisations for update using (true);
+
 -- ============================================================

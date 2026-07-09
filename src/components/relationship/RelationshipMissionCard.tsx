@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Linkedin, MessageCircle, MoreHorizontal, Star, Loader2 } from 'lucide-react';
+import { Mail, Linkedin, MessageCircle, MoreHorizontal, Star, Loader2, Bookmark } from 'lucide-react';
 import { WorkItem, RelationshipStage } from '../../types/index.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { PriorityBadge } from '../ui/PriorityBadge.tsx';
@@ -15,6 +15,7 @@ interface RelationshipMissionCardProps {
   onToggleCheck: (e: React.MouseEvent) => void;
   onChangeStage: (stage: RelationshipStage) => void;
   onToggleStar: () => void;
+  onToggleCommit: () => void;
   onQuickSent?: () => void;
   id?: string;
 }
@@ -27,6 +28,7 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
   onToggleCheck,
   onChangeStage,
   onToggleStar,
+  onToggleCommit,
   onQuickSent,
   id
 }) => {
@@ -140,18 +142,18 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
               {rel.name}
             </span>
             <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleStar();
-              }}
+              onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
               className="shrink-0"
-              title={rel.starred ? 'Unstar this relationship' : 'Star this relationship'}
+              title={rel.starred ? 'Unstar' : 'Star this relationship'}
             >
-              <Star
-                className={`w-3.5 h-3.5 transition-colors ${
-                  rel.starred ? 'fill-amber-400 text-amber-400' : 'text-zinc-700 hover:text-zinc-500'
-                }`}
-              />
+              <Star className={`w-3.5 h-3.5 transition-colors ${rel.starred ? 'fill-amber-400 text-amber-400' : 'text-zinc-700 hover:text-zinc-500'}`} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleCommit(); }}
+              className="shrink-0"
+              title={rel.isCommitted ? 'Remove commitment' : 'Commit to this relationship'}
+            >
+              <Bookmark className={`w-3.5 h-3.5 transition-colors ${rel.isCommitted ? 'fill-violet-400 text-violet-400' : 'text-zinc-700 hover:text-zinc-500'}`} />
             </button>
           </div>
           {rel.position && (
