@@ -735,4 +735,106 @@ grant select, update on organisations to anon;
 create policy "dev_anon_read_organisations" on organisations for select using (true);
 create policy "dev_anon_update_organisations" on organisations for update using (true);
 
+-- 1. Teach the database two new event types
+alter type event_type add value if not exists 'archived';
+alter type event_type add value if not exists 'unarchived';
+
+-- 2. Standing rule: never show archived contacts anywhere
+insert into targeting_rules (organisation_id, name, is_system, boolean_operator, logic)
+select id, 'Exclude archived', true, 'OR',
+  '[{"field": "archived_at", "operator": "IS NOT NULL", "value": null}]'::jsonb
+from organisations
+where not exists (
+  select 1 from targeting_rules
+  where name = 'Exclude archived' and organisation_id = organisations.id
+);
+
+-- 3. The "Archive one contact" command
+create or replace function archive_relationship(
+  p_relationship_id uuid,
+  p_reason text default 'Not specified'
+)
+returns void
+language plpgsql
+as $$
+begin
+  update relationships
+  set archived_at = now(),
+      outreach_status = 'do_not_contact',
+      exclusion_reason = p_reason,
+      excluded_until = null
+  where id = p_relationship_id;
+
+  update work_items
+  set status = 'skipped'
+  where relationship_id = p_relationship_id
+    and status = 'pending';
+
+  insert into relationship_events (relationship_id, event_type, reason, source)
+  values (p_relationship_id, 'archived', p_reason, 'manual');
+end;
+$$;
+
+grant execute on function archive_relationship(uuid, text) to anon;
+
+-- 4. The "Undo archive" command
+create or replace function unarchive_relationship(
+  p_relationship_id uuid
+)
+returns void
+language plpgsql
+as $$
+begin
+  update relationships
+  set archived_at = null,
+      exclusion_reason = null,
+      outreach_status = 'nurture',
+      next_touch_due = current_date
+  where id = p_relationship_id;
+
+  insert into relationship_events (relationship_id, event_type, reason, source)
+  values (p_relationship_id, 'unarchived', null, 'manual');
+end;
+$$;
+
+grant execute on function unarchive_relationship(uuid) to anon;
+
+-- 5. Same two commands, but for archiving/unarchiving many contacts at once
+create or replace function archive_relationships_bulk(
+  p_relationship_ids uuid[],
+  p_reason text default 'Not specified'
+)
+returns void
+language plpgsql
+as $$
+declare
+  rid uuid;
+begin
+  foreach rid in array p_relationship_ids
+  loop
+    perform archive_relationship(rid, p_reason);
+  end loop;
+end;
+$$;
+
+grant execute on function archive_relationships_bulk(uuid[], text) to anon;
+
+create or replace function unarchive_relationships_bulk(
+  p_relationship_ids uuid[]
+)
+returns void
+language plpgsql
+as $$
+declare
+  rid uuid;
+begin
+  foreach rid in array p_relationship_ids
+  loop
+    perform unarchive_relationship(rid);
+  end loop;
+end;
+$$;
+
+grant execute on function unarchive_relationships_bulk(uuid[]) to anon;
+
 -- ============================================================
