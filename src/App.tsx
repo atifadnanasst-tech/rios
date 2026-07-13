@@ -34,6 +34,7 @@ import { OutreachPreviewModal } from './components/modals/OutreachPreviewModal.t
 import { LogActivitySheet } from './components/modals/LogActivitySheet.tsx';
 import { SnoozeSheet } from './components/modals/SnoozeSheet.tsx';
 import { ArchiveSheet } from './components/modals/ArchiveSheet.tsx';
+import { ConfirmDialog } from './components/modals/ConfirmDialog.tsx';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
 
 // Converts the frontend's lowercase channel format ('email') to the
@@ -157,15 +158,27 @@ export default function App() {
       .filter(Boolean) as string[];
   }
 
-  // Unarchive — no reason needed (unlike Archive), so no popup/reason-picker.
-  // A light native confirm() stands in for the "pause point" Archive gets
-  // from its reason step, since this does change real state (re-enters
-  // cadence, resets outreach_status) and shouldn't fire on a stray click.
-  async function handleUnarchive(relationshipIds: string[]) {
+  // Unarchive — no reason needed (unlike Archive), so no popup/reason-picker
+  // form, just a themed yes/no confirmation (replacing the native browser
+  // confirm() dialog, which looked out of place next to the rest of the app).
+  const [showUnarchiveConfirm, setShowUnarchiveConfirm] = useState(false);
+  const [pendingUnarchiveIds, setPendingUnarchiveIds] = useState<string[]>([]);
+
+  function requestUnarchive(relationshipIds: string[]) {
     if (relationshipIds.length === 0) return;
-    const label = relationshipIds.length === 1 ? 'this contact' : `these ${relationshipIds.length} contacts`;
-    const confirmed = window.confirm(`Unarchive ${label}? They'll re-enter your active queues starting today.`);
-    if (!confirmed) return;
+    setPendingUnarchiveIds(relationshipIds);
+    setShowUnarchiveConfirm(true);
+  }
+
+  function cancelUnarchive() {
+    setShowUnarchiveConfirm(false);
+    setPendingUnarchiveIds([]);
+  }
+
+  async function confirmUnarchive() {
+    setShowUnarchiveConfirm(false);
+    const relationshipIds = pendingUnarchiveIds;
+    if (relationshipIds.length === 0) return;
 
     try {
       const { unarchiveRelationshipsBulk, fetchArchivedRelationshipsPaginated } = await import('./lib/domain/relationships');
@@ -178,6 +191,8 @@ export default function App() {
     } catch (err) {
       console.error('Failed to unarchive:', err);
       alert(err instanceof Error ? err.message : 'Failed to unarchive');
+    } finally {
+      setPendingUnarchiveIds([]);
     }
   }
 
@@ -557,7 +572,7 @@ export default function App() {
                           setShowArchive(true);
                         }}
                         isArchived={isArchivedTab}
-                        onRequestUnarchive={() => handleUnarchive([item.relationshipId])}
+                        onRequestUnarchive={() => requestUnarchive([item.relationshipId])}
                       />
                     </motion.div>
                   ))
@@ -720,7 +735,7 @@ export default function App() {
           setShowArchive(true);
         }}
         isArchivedTab={isArchivedTab}
-        onUnarchive={() => handleUnarchive(resolveRelationshipIds(store.selectedWorkItemIds))}
+        onUnarchive={() => requestUnarchive(resolveRelationshipIds(store.selectedWorkItemIds))}
         onClear={() => store.clearBulkSelection()}
       />
 
@@ -1030,6 +1045,16 @@ export default function App() {
           store.clearBulkSelection();
           setBulkActionIds([]);
         }}
+      />
+
+      <ConfirmDialog
+        isOpen={showUnarchiveConfirm}
+        title={pendingUnarchiveIds.length === 1 ? 'Unarchive this contact?' : `Unarchive ${pendingUnarchiveIds.length} contacts?`}
+        message="They'll re-enter your active queues starting today."
+        confirmLabel="Unarchive"
+        cancelLabel="Cancel"
+        onConfirm={confirmUnarchive}
+        onCancel={cancelUnarchive}
       />
     </div>
   );
