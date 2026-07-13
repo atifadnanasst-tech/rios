@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Mail, Linkedin, MessageCircle, MoreHorizontal, Star, Loader2, Bookmark } from 'lucide-react';
+import { Mail, Linkedin, MessageCircle, MoreHorizontal, Star, Loader2, Bookmark, Archive } from 'lucide-react';
 import { WorkItem, RelationshipStage } from '../../types/index.ts';
 import { Avatar } from '../ui/Avatar.tsx';
 import { PriorityBadge } from '../ui/PriorityBadge.tsx';
@@ -17,6 +17,7 @@ interface RelationshipMissionCardProps {
   onToggleStar: () => void;
   onToggleCommit: () => void;
   onQuickSent?: () => void;
+  onRequestArchive?: () => void;
   id?: string;
 }
 
@@ -30,10 +31,23 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
   onToggleStar,
   onToggleCommit,
   onQuickSent,
+  onRequestArchive,
   id
 }) => {
   const rel = item.relationship;
   const [isSending, setIsSending] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    }
+    if (showMenu) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
 
   async function handleQuickSend(e: React.MouseEvent) {
     e.stopPropagation(); // don't also trigger card select/checkbox toggle
@@ -212,12 +226,29 @@ export const RelationshipMissionCard: React.FC<RelationshipMissionCardProps> = (
         </button>
 
         {/* Meatball menu */}
-        <button
-          className="p-1.5 rounded-lg text-zinc-500 hover:text-white transition-colors hover:bg-white/5 cursor-pointer"
-          onClick={() => alert(`More options for ${rel.name}`)}
-        >
-          <MoreHorizontal className="w-4 h-4" />
-        </button>
+        <div className="relative" ref={menuRef}>
+          <button
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-white transition-colors hover:bg-white/5 cursor-pointer"
+            onClick={() => setShowMenu((v) => !v)}
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
+
+          {showMenu && (
+            <div className="absolute right-0 top-full mt-1 w-40 bg-zinc-900 border border-white/10 rounded-lg shadow-2xl z-50 overflow-hidden py-1">
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  onRequestArchive?.();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors text-left"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                Archive
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </motion.div>
   );

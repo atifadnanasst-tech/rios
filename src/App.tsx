@@ -33,6 +33,7 @@ import { LinkedinEnrichmentModal } from './components/modals/LinkedinEnrichmentM
 import { OutreachPreviewModal } from './components/modals/OutreachPreviewModal.tsx';
 import { LogActivitySheet } from './components/modals/LogActivitySheet.tsx';
 import { SnoozeSheet } from './components/modals/SnoozeSheet.tsx';
+import { ArchiveSheet } from './components/modals/ArchiveSheet.tsx';
 import { Relationship, WorkItem, RelationshipCategory, RelationshipStage, PriorityLevel, CommunicationChannel } from './types/index.ts';
 
 // Converts the frontend's lowercase channel format ('email') to the
@@ -67,6 +68,8 @@ export default function App() {
   const [showOutreach, setShowOutreach] = useState(false);
   const [showLogActivity, setShowLogActivity] = useState(false);
   const [showSnooze, setShowSnooze] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [archiveIds, setArchiveIds] = useState<string[]>([]);
 
   // New relationship form fields
   const [newRelName, setNewRelName] = useState('');
@@ -476,6 +479,10 @@ export default function App() {
                         onToggleStar={() => store.toggleStarred(item.relationshipId)}
                         onToggleCommit={() => store.toggleCommitted(item.relationshipId)}
                         onQuickSent={() => store.initialize()}
+                        onRequestArchive={() => {
+                          setArchiveIds([item.relationshipId]);
+                          setShowArchive(true);
+                        }}
                       />
                     </motion.div>
                   ))
@@ -924,6 +931,17 @@ export default function App() {
         onSnoozed={(ids) => {
           store.removeRelationshipsFromQueue(ids);
           store.clearBulkSelection();
+        }}
+      />
+
+      <ArchiveSheet
+        isOpen={showArchive}
+        onClose={() => setShowArchive(false)}
+        relationshipIds={archiveIds}
+        onArchived={(ids) => {
+          store.removeRelationshipsFromQueue(ids);
+          store.clearBulkSelection();
+          setArchiveIds([]);
         }}
       />
     </div>
