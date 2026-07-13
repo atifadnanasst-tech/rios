@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Clock, Check, Layers, ChevronDown, X } from 'lucide-react';
+import { Sparkles, Clock, Check, Layers, ChevronDown, X, Archive } from 'lucide-react';
 import { RelationshipStage } from '../../types/index.ts';
 import { PHASES } from '../ui/StageIndicator.tsx';
 
@@ -10,6 +10,7 @@ interface BulkToolbarProps {
   onSnooze: () => void;
   onComplete: () => void;
   onChangeStage: (stage: RelationshipStage) => void;
+  onArchive: () => void;
   onClear: () => void;
   id?: string;
 }
@@ -20,10 +21,12 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
   onSnooze,
   onComplete,
   onChangeStage,
+  onArchive,
   onClear,
   id
 }) => {
   const [showStageDropdown, setShowStageDropdown] = useState(false);
+  const [showBulkActionDropdown, setShowBulkActionDropdown] = useState(false);
 
   // Reuses the same 6-phase grouping shown in StageIndicator (cards, Advisor
   // panel) rather than a separate hardcoded list — bulk-changing dozens of
@@ -117,13 +120,38 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
             </div>
 
             {/* Bulk Action dropdown */}
-            <button
-              className="flex items-center gap-1 px-3.5 py-1.5 rounded-full bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
-              onClick={() => alert('Bulk Action: Archive, Export, Delete — coming next')}
-            >
-              <span>Bulk Action</span>
-              <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowBulkActionDropdown(!showBulkActionDropdown)}
+                className="flex items-center gap-1 px-3.5 py-1.5 rounded-full bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <span>Bulk Action</span>
+                <ChevronDown className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${showBulkActionDropdown ? 'rotate-180' : ''}`} />
+              </button>
+
+              <AnimatePresence>
+                {showBulkActionDropdown && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                    transition={{ duration: 0.12 }}
+                    className="absolute bottom-full right-0 mb-1 w-44 bg-zinc-900 border border-white/10 rounded-xl py-1.5 shadow-2xl z-50"
+                  >
+                    <button
+                      onClick={() => {
+                        setShowBulkActionDropdown(false);
+                        onArchive();
+                      }}
+                      className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+                    >
+                      <Archive className="w-3.5 h-3.5" />
+                      Archive
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           {/* Close Clear Button */}

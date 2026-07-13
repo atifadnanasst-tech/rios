@@ -631,6 +631,12 @@ export default function App() {
         onSnooze={() => setShowSnooze(true)}
         onComplete={() => setShowLogActivity(true)}
         onChangeStage={(stage) => store.bulkChangeStage(stage)}
+        onArchive={() => {
+          setArchiveIds(store.selectedWorkItemIds
+            .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
+            .filter(Boolean) as string[]);
+          setShowArchive(true);
+        }}
         onClear={() => store.clearBulkSelection()}
       />
 
