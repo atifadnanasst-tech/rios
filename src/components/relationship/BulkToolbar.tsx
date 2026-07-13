@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Clock, Check, Layers, ChevronDown, X, Archive } from 'lucide-react';
+import { Sparkles, Clock, Check, Layers, ChevronDown, X, Archive, ArchiveRestore } from 'lucide-react';
 import { RelationshipStage } from '../../types/index.ts';
 import { PHASES } from '../ui/StageIndicator.tsx';
 
@@ -11,6 +11,8 @@ interface BulkToolbarProps {
   onComplete: () => void;
   onChangeStage: (stage: RelationshipStage) => void;
   onArchive: () => void;
+  isArchivedTab?: boolean;
+  onUnarchive: () => void;
   onClear: () => void;
   id?: string;
 }
@@ -22,6 +24,8 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
   onComplete,
   onChangeStage,
   onArchive,
+  isArchivedTab,
+  onUnarchive,
   onClear,
   id
 }) => {
@@ -138,16 +142,29 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
                     transition={{ duration: 0.12 }}
                     className="absolute bottom-full right-0 mb-1 w-44 bg-zinc-900 border border-white/10 rounded-xl py-1.5 shadow-2xl z-50"
                   >
-                    <button
-                      onClick={() => {
-                        setShowBulkActionDropdown(false);
-                        onArchive();
-                      }}
-                      className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                      Archive
-                    </button>
+                    {isArchivedTab ? (
+                      <button
+                        onClick={() => {
+                          setShowBulkActionDropdown(false);
+                          onUnarchive();
+                        }}
+                        className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+                      >
+                        <ArchiveRestore className="w-3.5 h-3.5" />
+                        Unarchive
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setShowBulkActionDropdown(false);
+                          onArchive();
+                        }}
+                        className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+                      >
+                        <Archive className="w-3.5 h-3.5" />
+                        Archive
+                      </button>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>

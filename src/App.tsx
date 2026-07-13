@@ -87,6 +87,7 @@ export default function App() {
     null;
 
   const isAllContactsTab = store.activeQueueTab === 'all';
+  const isArchivedTab = store.activeQueueTab === 'archived';
 
   // Real KPI metrics — queried once on mount
   const [advanceCount, setAdvanceCount] = useState<number | null>(null);
@@ -130,6 +131,14 @@ export default function App() {
   const [allContactsTotal, setAllContactsTotal] = useState(0);
   const [allContactsPage, setAllContactsPage] = useState(1);
 
+  // Archived tab — server-side paginated, separate state from every other
+  // tab, same reasoning as All Contacts above (own architectural rule:
+  // each tab that browses the full dataset gets its own pagination state,
+  // never shared with the daily queue's client-side-paginated list).
+  const [archivedItems, setArchivedItems] = useState<WorkItem[]>([]);
+  const [archivedTotal, setArchivedTotal] = useState(0);
+  const [archivedPage, setArchivedPage] = useState(1);
+
   // Bulk-select checkboxes store the workItem's own id, regardless of which
   // tab/list it was checked from. Every bulk action (Outreach, Log Activity,
   // Snooze, Archive) then needs to turn those ids back into relationshipIds.
@@ -142,9 +151,34 @@ export default function App() {
     return workItemIds
       .map(id =>
         store.workItems.find(i => i.id === id)?.relationshipId ??
-        allContactsItems.find(i => i.id === id)?.relationshipId
+        allContactsItems.find(i => i.id === id)?.relationshipId ??
+        archivedItems.find(i => i.id === id)?.relationshipId
       )
       .filter(Boolean) as string[];
+  }
+
+  // Unarchive — no reason needed (unlike Archive), so no popup/reason-picker.
+  // A light native confirm() stands in for the "pause point" Archive gets
+  // from its reason step, since this does change real state (re-enters
+  // cadence, resets outreach_status) and shouldn't fire on a stray click.
+  async function handleUnarchive(relationshipIds: string[]) {
+    if (relationshipIds.length === 0) return;
+    const label = relationshipIds.length === 1 ? 'this contact' : `these ${relationshipIds.length} contacts`;
+    const confirmed = window.confirm(`Unarchive ${label}? They'll re-enter your active queues starting today.`);
+    if (!confirmed) return;
+
+    try {
+      const { unarchiveRelationshipsBulk, fetchArchivedRelationshipsPaginated } = await import('./lib/domain/relationships');
+      await unarchiveRelationshipsBulk(relationshipIds);
+      // Refresh the archived list — these no longer belong on this tab
+      const { items, total } = await fetchArchivedRelationshipsPaginated(archivedPage, itemsPerPage);
+      setArchivedItems(items);
+      setArchivedTotal(total);
+      store.clearBulkSelection();
+    } catch (err) {
+      console.error('Failed to unarchive:', err);
+      alert(err instanceof Error ? err.message : 'Failed to unarchive');
+    }
   }
 
   // Snapshot of relationshipIds for whichever bulk-action popup is currently
@@ -159,18 +193,22 @@ export default function App() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showPerPageMenu, setShowPerPageMenu] = useState(false);
 
-  const activePage = isAllContactsTab ? allContactsPage : currentPage;
+  const activePage = isAllContactsTab ? allContactsPage : isArchivedTab ? archivedPage : currentPage;
   const setActivePage = isAllContactsTab
     ? (p: number) => setAllContactsPage(p)
+    : isArchivedTab
+    ? (p: number) => setArchivedPage(p)
     : (p: number) => setCurrentPage(p);
 
-  const activeTotal = isAllContactsTab ? allContactsTotal : filteredWorkItems.length;
+  const activeTotal = isAllContactsTab ? allContactsTotal : isArchivedTab ? archivedTotal : filteredWorkItems.length;
   const totalPages = Math.max(1, Math.ceil(activeTotal / itemsPerPage));
   const safePage = Math.min(activePage, totalPages);
   const pageStart = activeTotal === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
   const pageEnd = Math.min(safePage * itemsPerPage, activeTotal);
   const paginatedWorkItems = isAllContactsTab
     ? allContactsItems
+    : isArchivedTab
+    ? archivedItems
     : filteredWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   // Load All Contacts from server when that tab is active
@@ -183,12 +221,24 @@ export default function App() {
     );
   }, [isAllContactsTab, allContactsPage, itemsPerPage]);
 
+  // Load Archived contacts from server when that tab is active — same
+  // pattern as All Contacts above.
+  useEffect(() => {
+    if (!isArchivedTab) return;
+    import('./lib/domain/relationships').then(({ fetchArchivedRelationshipsPaginated }) =>
+      fetchArchivedRelationshipsPaginated(archivedPage, itemsPerPage)
+        .then(({ items, total }) => { setArchivedItems(items); setArchivedTotal(total); })
+        .catch(console.error)
+    );
+  }, [isArchivedTab, archivedPage, itemsPerPage]);
+
   // Reset to page 1 whenever the underlying filter/search/tab changes —
   // otherwise you could land on a stale page number that's now empty or
   // out of range for a newly-narrowed result set.
   useEffect(() => {
     setCurrentPage(1);
     setAllContactsPage(1);
+    setArchivedPage(1);
   }, [store.activeQueueTab, store.activeCategoryFilter, store.searchQuery]);
 
   // If exactly one relationship is currently active in the Advisor panel,
@@ -506,6 +556,8 @@ export default function App() {
                           setBulkActionIds([item.relationshipId]);
                           setShowArchive(true);
                         }}
+                        isArchived={isArchivedTab}
+                        onRequestUnarchive={() => handleUnarchive([item.relationshipId])}
                       />
                     </motion.div>
                   ))
@@ -651,30 +703,24 @@ export default function App() {
       <BulkToolbar
         selectedCount={store.selectedWorkItemIds.length}
         onGenerate={() => {
-          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
-          console.log('[DEBUG Outreach] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
-          setBulkActionIds(resolved);
+          setBulkActionIds(resolveRelationshipIds(store.selectedWorkItemIds));
           setShowOutreach(true);
         }}
         onSnooze={() => {
-          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
-          console.log('[DEBUG Snooze] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
-          setBulkActionIds(resolved);
+          setBulkActionIds(resolveRelationshipIds(store.selectedWorkItemIds));
           setShowSnooze(true);
         }}
         onComplete={() => {
-          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
-          console.log('[DEBUG Log Activity] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
-          setBulkActionIds(resolved);
+          setBulkActionIds(resolveRelationshipIds(store.selectedWorkItemIds));
           setShowLogActivity(true);
         }}
         onChangeStage={(stage) => store.bulkChangeStage(stage)}
         onArchive={() => {
-          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
-          console.log('[DEBUG Archive] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
-          setBulkActionIds(resolved);
+          setBulkActionIds(resolveRelationshipIds(store.selectedWorkItemIds));
           setShowArchive(true);
         }}
+        isArchivedTab={isArchivedTab}
+        onUnarchive={() => handleUnarchive(resolveRelationshipIds(store.selectedWorkItemIds))}
         onClear={() => store.clearBulkSelection()}
       />
 
