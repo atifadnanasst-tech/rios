@@ -67,6 +67,7 @@ export const useStore = create<RIOSState>((set, get) => ({
         .from('relationships')
         .select('id, company, position, relationship_temperature, next_best_action, stage, icp_score, icp_tier, touch_number, starred, is_committed, suggested_stage, outreach_status, next_touch_due, last_outreach_channel, contacts(first_name, last_name, country)')
         .eq('last_outreach_date', today)
+        .is('archived_at', null)
         .order('icp_score', { ascending: false });
 
       const completedToday: WorkItem[] = (touchedToday || []).map((r: any) => {

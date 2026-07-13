@@ -70,10 +70,14 @@ export async function linkRelationshipToCompany(relationshipId: string, companyI
 // Everyone linked to a given company — the simple query that "who else
 // do I know here" reduces to, now that company is a real entity instead
 // of a disconnected text string repeated across many rows.
+// Deliberately includes archived contacts (archived_at is returned so the
+// UI can label them, same convention as searchRelationships) rather than
+// hiding them — consistent with the decision that company/search lookups
+// show the full picture, unlike the main work queues.
 export async function fetchRelationshipsAtCompany(companyId: string) {
   const { data, error } = await supabase
     .from('relationships')
-    .select('id, position, stage, relationship_temperature, contacts(first_name, last_name)')
+    .select('id, position, stage, relationship_temperature, archived_at, contacts(first_name, last_name)')
     .eq('company_id', companyId);
   if (error) throw new Error(`Failed to fetch relationships at company: ${error.message}`);
   return data || [];

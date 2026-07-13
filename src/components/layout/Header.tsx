@@ -155,7 +155,14 @@ export const Header: React.FC<HeaderProps> = ({ onShowAIBriefing, id }) => {
                   onClick={() => handleSelectResult(r)}
                   className="w-full text-left px-3 py-2.5 hover:bg-zinc-800 transition-colors border-b border-white/5 last:border-b-0"
                 >
-                  <div className="text-xs font-medium text-white">{r.name}</div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-xs font-medium text-white">{r.name}</div>
+                    {r.isArchived && (
+                      <span className="text-[9px] font-semibold uppercase tracking-wide text-zinc-500 bg-zinc-800 border border-white/10 px-1.5 py-0.5 rounded">
+                        Archived
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] text-zinc-400">
                     {r.position} {r.position && r.company ? '·' : ''} {r.company}
                   </div>
