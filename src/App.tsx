@@ -536,6 +536,7 @@ export default function App() {
                 { id: 'commitments', label: 'Committed' },
                 { id: 'completed', label: 'Completed Today', count: store.completedToday.length || undefined },
                 { id: 'archived', label: 'Archived' },
+                { id: 'snoozed', label: 'Snoozed' },
               ]}
             />
 
