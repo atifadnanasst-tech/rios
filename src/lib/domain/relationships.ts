@@ -62,6 +62,9 @@ export async function fetchTopRelationships(limit = 25): Promise<Relationship[]>
   const { data, error } = await supabase
     .from('relationships')
     .select(RELATIONSHIP_SELECT)
+    .neq('outreach_status', 'opted_out')
+    .neq('outreach_status', 'do_not_contact')
+    .is('archived_at', null)
     .order('icp_score', { ascending: false })
     .limit(limit);
 
@@ -292,4 +295,67 @@ export async function findOrCreateRelationshipForContact(
     return null;
   }
   return created.id;
+}
+
+// ============================================================
+// ARCHIVE FEATURE
+// ============================================================
+// These call the Postgres functions created in
+// supabase/migrations/20260711125838_add_archive_feature.sql.
+// All the actual work (hiding the contact, cancelling pending
+// work_items, writing the audit-trail event) happens inside that
+// database function in one atomic transaction — these are thin
+// wrappers so the frontend has a normal-looking async function to call,
+// same pattern as every other write in this file.
+
+export async function archiveRelationship(relationshipId: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc('archive_relationship', {
+    p_relationship_id: relationshipId,
+    p_reason: reason,
+  });
+  if (error) throw new Error(`Failed to archive relationship: ${error.message}`);
+}
+
+export async function unarchiveRelationship(relationshipId: string): Promise<void> {
+  const { error } = await supabase.rpc('unarchive_relationship', {
+    p_relationship_id: relationshipId,
+  });
+  if (error) throw new Error(`Failed to unarchive relationship: ${error.message}`);
+}
+
+export async function archiveRelationshipsBulk(relationshipIds: string[], reason: string): Promise<void> {
+  const { error } = await supabase.rpc('archive_relationships_bulk', {
+    p_relationship_ids: relationshipIds,
+    p_reason: reason,
+  });
+  if (error) throw new Error(`Failed to bulk archive relationships: ${error.message}`);
+}
+
+export async function unarchiveRelationshipsBulk(relationshipIds: string[]): Promise<void> {
+  const { error } = await supabase.rpc('unarchive_relationships_bulk', {
+    p_relationship_ids: relationshipIds,
+  });
+  if (error) throw new Error(`Failed to bulk unarchive relationships: ${error.message}`);
+}
+
+// Real server-side paginated browse of ARCHIVED contacts only — same
+// pattern as fetchAllRelationshipsPaginated, just the opposite filter.
+// Feeds the Archived tab (Step 7 — not built yet, this just supplies
+// the data it will need).
+export async function fetchArchivedRelationshipsPaginated(
+  page: number,
+  pageSize: number
+): Promise<{ items: WorkItem[]; total: number }> {
+  const offset = (page - 1) * pageSize;
+
+  const { data, error, count } = await supabase
+    .from('relationships')
+    .select(RELATIONSHIP_SELECT, { count: 'exact' })
+    .not('archived_at', 'is', null)
+    .order('archived_at', { ascending: false })
+    .range(offset, offset + pageSize - 1);
+
+  if (error) throw new Error(`Failed to fetch archived contacts: ${error.message}`);
+  const items = ((data as unknown as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
+  return { items, total: count || 0 };
 }
