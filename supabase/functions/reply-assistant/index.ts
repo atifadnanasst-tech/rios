@@ -12,11 +12,6 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // Read org's configured draft model
-    const { data: rel } = await supabase.from('relationships').select('organisation_id').eq('id', relationshipId).single();
-    const { data: org } = await supabase.from('organisations').select('ai_draft_model').eq('id', rel?.organisation_id).single();
-    const draftModel = org?.ai_draft_model || 'gpt-4o-mini';
-
     if (!relationshipId || !incomingMessage || typeof incomingMessage !== 'string' || incomingMessage.trim().length < 2) {
       return new Response(
         JSON.stringify({ error: 'relationshipId and incomingMessage are required.' }),
@@ -39,6 +34,13 @@ Deno.serve(async (req) => {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
+
+    // Read org's configured draft model — reuses the same fetch above
+    // instead of a separate, redundant lookup (that duplicate lookup
+    // previously caused a "cannot redeclare 'rel'" syntax error on every
+    // single call — fixed 2026-07-13).
+    const { data: org } = await supabase.from('organisations').select('ai_draft_model').eq('id', rel.organisation_id).single();
+    const draftModel = org?.ai_draft_model || 'gpt-4o-mini';
 
     const contactRaw = (rel as any).contacts;
     const contact = Array.isArray(contactRaw) ? contactRaw[0] : contactRaw;

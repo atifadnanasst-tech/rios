@@ -33,6 +33,7 @@ import { logInteraction } from '../../lib/domain/interactions';
 import { recordAiFeedback } from '../../lib/domain/aiFeedback';
 import { dismissSuggestedStage, findOrCreateRelationshipForContact } from '../../lib/domain/relationships';
 import { fetchContactBackground } from '../../lib/domain/linkedinEnrichment';
+import { ConfirmDialog } from '../modals/ConfirmDialog.tsx';
 
 interface RelationshipAdvisorProps {
   item: WorkItem | null;
@@ -61,12 +62,12 @@ const HistoryEntryRow: React.FC<{
   entry: RelationshipHistoryEntry;
   contactFirstName: string;
   expandAll: boolean;
-  onDeleted: (id: string) => void;
-}> = ({ entry, contactFirstName, expandAll, onDeleted }) => {
+  isDeleting: boolean;
+  onRequestDelete: (id: string) => void;
+}> = ({ entry, contactFirstName, expandAll, isDeleting, onRequestDelete }) => {
   const [expanded, setExpanded] = useState(false);
   const [localDate, setLocalDate] = useState(entry.messageDate || '');
   const [localChannel, setLocalChannel] = useState(entry.channel || '');
-  const [deleting, setDeleting] = useState(false);
   const text = entry.messageText || '';
   const isLong = text.length > 140 || text.split('\n').length > 3;
 
@@ -89,19 +90,6 @@ const HistoryEntryRow: React.FC<{
       await updateHistoryEntry(entry.id, { channel: newChannel || null });
     } catch (err) {
       console.error('Failed to update channel:', err);
-    }
-  }
-
-  async function handleDelete() {
-    if (!window.confirm('Delete this history entry? This cannot be undone.')) return;
-    setDeleting(true);
-    try {
-      await deleteHistoryEntry(entry.id);
-      onDeleted(entry.id);
-    } catch (err) {
-      console.error('Failed to delete entry:', err);
-      alert('Failed to delete this entry.');
-      setDeleting(false);
     }
   }
 
@@ -134,8 +122,8 @@ const HistoryEntryRow: React.FC<{
             <option value="Phone">Phone</option>
           </select>
           <button
-            onClick={handleDelete}
-            disabled={deleting}
+            onClick={() => onRequestDelete(entry.id)}
+            disabled={isDeleting}
             className="text-zinc-500 hover:text-red-400 transition-colors disabled:opacity-50 shrink-0"
             title="Delete this entry"
           >
@@ -188,6 +176,8 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   const [history, setHistory] = useState<RelationshipHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [allHistoryExpanded, setAllHistoryExpanded] = useState(false);
+  const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState<string | null>(null);
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -320,6 +310,30 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       console.error('Failed to load older history:', err);
     } finally {
       setLoadingOlder(false);
+    }
+  }
+
+  function requestDeleteEntry(entryId: string) {
+    setConfirmDeleteEntryId(entryId);
+  }
+
+  function cancelDeleteEntry() {
+    setConfirmDeleteEntryId(null);
+  }
+
+  async function confirmDeleteEntry() {
+    const entryId = confirmDeleteEntryId;
+    if (!entryId) return;
+    setConfirmDeleteEntryId(null);
+    setDeletingEntryId(entryId);
+    try {
+      await deleteHistoryEntry(entryId);
+      setHistory((prev) => prev.filter((h) => h.id !== entryId));
+    } catch (err) {
+      console.error('Failed to delete entry:', err);
+      alert('Failed to delete this entry.');
+    } finally {
+      setDeletingEntryId(null);
     }
   }
 
@@ -952,7 +966,8 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
                   entry={entry}
                   contactFirstName={rel.name.split(' ')[0]}
                   expandAll={allHistoryExpanded}
-                  onDeleted={(id) => setHistory((prev) => prev.filter((h) => h.id !== id))}
+                  isDeleting={deletingEntryId === entry.id}
+                  onRequestDelete={requestDeleteEntry}
                 />
               ))}
               <div className="text-[9px] uppercase tracking-wider text-zinc-600 text-center pt-1">
@@ -1083,6 +1098,16 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
           <MoreHorizontal className="w-4 h-4" />
         </button>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDeleteEntryId !== null}
+        title="Delete this history entry?"
+        message="This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={confirmDeleteEntry}
+        onCancel={cancelDeleteEntry}
+      />
     </div>
   );
 };

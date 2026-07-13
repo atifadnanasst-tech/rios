@@ -843,6 +843,22 @@ grant execute on function unarchive_relationships_bulk(uuid[]) to anon;
 grant update on work_items to anon;
 create policy "dev_anon_update_work_items" on work_items for update using (true);
 
+-- ============================================================
+-- SNOOZE RESURFACING FEATURE — added 2026-07-13
+-- Adds 'resurfaced' event type. Actual resurfacing logic lives in the
+-- daily-relationship-sweep Edge Function (application code, not schema).
+-- ============================================================
+alter type event_type add value if not exists 'resurfaced';
+
+-- ============================================================
+-- ADVISOR CHAT FEATURE — added 2026-07-13
+-- New tables: advisor_conversations (threads), advisor_messages (turns).
+-- v1 = exactly one thread per contact, enforced by
+-- get_or_create_advisor_conversation(), not a DB constraint — so v2
+-- (multiple named threads per contact) needs no schema changes.
+-- Full migration: supabase/migrations/20260713173819_add_advisor_chat.sql
+-- ============================================================
+
 
 
 -- ============================================================
