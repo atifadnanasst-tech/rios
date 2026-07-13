@@ -69,7 +69,6 @@ export default function App() {
   const [showLogActivity, setShowLogActivity] = useState(false);
   const [showSnooze, setShowSnooze] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
-  const [archiveIds, setArchiveIds] = useState<string[]>([]);
 
   // New relationship form fields
   const [newRelName, setNewRelName] = useState('');
@@ -130,6 +129,30 @@ export default function App() {
   const [allContactsItems, setAllContactsItems] = useState<WorkItem[]>([]);
   const [allContactsTotal, setAllContactsTotal] = useState(0);
   const [allContactsPage, setAllContactsPage] = useState(1);
+
+  // Bulk-select checkboxes store the workItem's own id, regardless of which
+  // tab/list it was checked from. Every bulk action (Outreach, Log Activity,
+  // Snooze, Archive) then needs to turn those ids back into relationshipIds.
+  // Bug found 2026-07-13: this lookup only ever searched `store.workItems`
+  // (the Daily Work Queue's data) — so checkboxes ticked while on the All
+  // Contacts tab (a separate list, `allContactsItems`) silently resolved to
+  // nothing, and every bulk action reported "0 contacts" from that tab.
+  // This checks both lists, so it works regardless of which tab you're on.
+  function resolveRelationshipIds(workItemIds: string[]): string[] {
+    return workItemIds
+      .map(id =>
+        store.workItems.find(i => i.id === id)?.relationshipId ??
+        allContactsItems.find(i => i.id === id)?.relationshipId
+      )
+      .filter(Boolean) as string[];
+  }
+
+  // Snapshot of relationshipIds for whichever bulk-action popup is currently
+  // open (Outreach/Snooze/Log Activity/Archive). Taken ONCE at the moment
+  // the button is clicked, not recomputed on every re-render while the
+  // popup is open — a live-recomputed value can go stale/empty if
+  // selectedWorkItemIds changes for any reason while the popup is showing.
+  const [bulkActionIds, setBulkActionIds] = useState<string[]>([]);
 
   // Pagination state shared between both tabs
   const [currentPage, setCurrentPage] = useState(1);
@@ -480,7 +503,7 @@ export default function App() {
                         onToggleCommit={() => store.toggleCommitted(item.relationshipId)}
                         onQuickSent={() => store.initialize()}
                         onRequestArchive={() => {
-                          setArchiveIds([item.relationshipId]);
+                          setBulkActionIds([item.relationshipId]);
                           setShowArchive(true);
                         }}
                       />
@@ -627,14 +650,29 @@ export default function App() {
       {/* FLOATING ACTION BULK TOOLBAR POPUP */}
       <BulkToolbar
         selectedCount={store.selectedWorkItemIds.length}
-        onGenerate={() => setShowOutreach(true)}
-        onSnooze={() => setShowSnooze(true)}
-        onComplete={() => setShowLogActivity(true)}
+        onGenerate={() => {
+          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
+          console.log('[DEBUG Outreach] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
+          setBulkActionIds(resolved);
+          setShowOutreach(true);
+        }}
+        onSnooze={() => {
+          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
+          console.log('[DEBUG Snooze] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
+          setBulkActionIds(resolved);
+          setShowSnooze(true);
+        }}
+        onComplete={() => {
+          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
+          console.log('[DEBUG Log Activity] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
+          setBulkActionIds(resolved);
+          setShowLogActivity(true);
+        }}
         onChangeStage={(stage) => store.bulkChangeStage(stage)}
         onArchive={() => {
-          setArchiveIds(store.selectedWorkItemIds
-            .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
-            .filter(Boolean) as string[]);
+          const resolved = resolveRelationshipIds(store.selectedWorkItemIds);
+          console.log('[DEBUG Archive] selectedWorkItemIds:', store.selectedWorkItemIds, '-> resolved:', resolved);
+          setBulkActionIds(resolved);
           setShowArchive(true);
         }}
         onClear={() => store.clearBulkSelection()}
@@ -907,47 +945,44 @@ export default function App() {
       <OutreachPreviewModal
         isOpen={showOutreach}
         onClose={() => setShowOutreach(false)}
-        relationshipIds={store.selectedWorkItemIds
-          .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
-          .filter(Boolean) as string[]}
+        relationshipIds={bulkActionIds}
         onOutreached={(ids) => {
           store.removeRelationshipsFromQueue(ids);
           store.clearBulkSelection();
+          setBulkActionIds([]);
         }}
       />
 
       <LogActivitySheet
         isOpen={showLogActivity}
         onClose={() => setShowLogActivity(false)}
-        relationshipIds={store.selectedWorkItemIds
-          .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
-          .filter(Boolean) as string[]}
+        relationshipIds={bulkActionIds}
         onLogged={(ids) => {
           store.removeRelationshipsFromQueue(ids);
           store.clearBulkSelection();
+          setBulkActionIds([]);
         }}
       />
 
       <SnoozeSheet
         isOpen={showSnooze}
         onClose={() => setShowSnooze(false)}
-        relationshipIds={store.selectedWorkItemIds
-          .map(id => store.workItems.find(i => i.id === id)?.relationshipId)
-          .filter(Boolean) as string[]}
+        relationshipIds={bulkActionIds}
         onSnoozed={(ids) => {
           store.removeRelationshipsFromQueue(ids);
           store.clearBulkSelection();
+          setBulkActionIds([]);
         }}
       />
 
       <ArchiveSheet
         isOpen={showArchive}
         onClose={() => setShowArchive(false)}
-        relationshipIds={archiveIds}
+        relationshipIds={bulkActionIds}
         onArchived={(ids) => {
           store.removeRelationshipsFromQueue(ids);
           store.clearBulkSelection();
-          setArchiveIds([]);
+          setBulkActionIds([]);
         }}
       />
     </div>

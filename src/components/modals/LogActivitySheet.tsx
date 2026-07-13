@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Check, Loader2, FileText } from 'lucide-react';
 import { logBulkActivity } from '../../lib/domain/outreach';
@@ -16,6 +16,16 @@ export const LogActivitySheet: React.FC<LogActivitySheetProps> = ({
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+
+  // Frozen the moment the sheet opens — see ArchiveSheet.tsx for why:
+  // the parent clears relationshipIds right after success, which would
+  // otherwise flash the header/success text to 0 the instant it appears.
+  const [displayCount, setDisplayCount] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) setDisplayCount(relationshipIds.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   function handleClose() {
     setNote('');
@@ -62,7 +72,7 @@ export const LogActivitySheet: React.FC<LogActivitySheetProps> = ({
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-zinc-400" />
                 <span className="text-sm font-semibold text-white">Log Activity</span>
-                <span className="text-xs text-zinc-500">· {relationshipIds.length} contact{relationshipIds.length !== 1 ? 's' : ''}</span>
+                <span className="text-xs text-zinc-500">· {displayCount} contact{displayCount !== 1 ? 's' : ''}</span>
               </div>
               <button onClick={handleClose} className="text-zinc-500 hover:text-white transition-colors">
                 <X className="w-4 h-4" />
@@ -95,7 +105,7 @@ export const LogActivitySheet: React.FC<LogActivitySheetProps> = ({
                   />
                   {note.trim() && (
                     <p className="text-[10px] text-zinc-500 mt-1.5">
-                      Note will be logged on all {relationshipIds.length} contacts · one AI call will suggest next best action
+                      Note will be logged on all {displayCount} contacts · one AI call will suggest next best action
                     </p>
                   )}
                 </div>

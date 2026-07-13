@@ -29,6 +29,19 @@ export const ArchiveSheet: React.FC<ArchiveSheetProps> = ({
   const [done, setDone] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
+  // Frozen the moment the sheet opens. relationshipIds itself stays correct
+  // for the whole time the sheet is doing its work, but the parent clears
+  // it to [] right after success (so the next bulk action starts clean) —
+  // if the header/success text read relationshipIds.length directly, it
+  // would flash back to 0 right as the success message appears. This copy
+  // doesn't move, so the displayed count stays correct throughout.
+  const [displayCount, setDisplayCount] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) setDisplayCount(relationshipIds.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   const isOther = selectedReason === 'Other';
   const finalReason = isOther ? customReason.trim() : selectedReason;
   const canConfirm = isOther ? customReason.trim().length > 0 : selectedReason.length > 0;
@@ -88,7 +101,7 @@ export const ArchiveSheet: React.FC<ArchiveSheetProps> = ({
               <div className="flex items-center gap-2">
                 <ArchiveIcon className="w-4 h-4 text-zinc-400" />
                 <span className="text-sm font-semibold text-white">Archive</span>
-                <span className="text-xs text-zinc-500">· {relationshipIds.length} contact{relationshipIds.length !== 1 ? 's' : ''}</span>
+                <span className="text-xs text-zinc-500">· {displayCount} contact{displayCount !== 1 ? 's' : ''}</span>
               </div>
               <button onClick={handleClose} className="text-zinc-500 hover:text-white transition-colors">
                 <X className="w-4 h-4" />
@@ -101,7 +114,7 @@ export const ArchiveSheet: React.FC<ArchiveSheetProps> = ({
                   <ArchiveIcon className="w-4 h-4 text-zinc-300" />
                 </div>
                 <span className="text-sm font-semibold text-white">
-                  Archived {relationshipIds.length} contact{relationshipIds.length !== 1 ? 's' : ''}
+                  Archived {displayCount} contact{displayCount !== 1 ? 's' : ''}
                 </span>
                 <span className="text-xs text-zinc-500">They're hidden from your queues — find them anytime in the Archived tab</span>
                 <button onClick={handleClose} className="mt-1 px-4 py-1.5 rounded-lg bg-zinc-800 text-xs text-zinc-300 hover:text-white transition-colors">
@@ -114,7 +127,7 @@ export const ArchiveSheet: React.FC<ArchiveSheetProps> = ({
                 {/* Reason — required, one click, or type your own */}
                 <div>
                   <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500 mb-2">
-                    Why are you archiving {relationshipIds.length !== 1 ? 'these contacts' : 'this contact'}?
+                    Why are you archiving {displayCount !== 1 ? 'these contacts' : 'this contact'}?
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {REASON_OPTIONS.map((option) => {

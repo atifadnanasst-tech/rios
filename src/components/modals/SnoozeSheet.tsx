@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Clock, Check, Loader2 } from 'lucide-react';
 import { snoozeContacts } from '../../lib/domain/outreach';
@@ -31,6 +31,16 @@ export const SnoozeSheet: React.FC<SnoozeSheetProps> = ({
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+
+  // Frozen the moment the sheet opens — see ArchiveSheet.tsx for why:
+  // the parent clears relationshipIds right after success, which would
+  // otherwise flash the header/success text to 0 the instant it appears.
+  const [displayCount, setDisplayCount] = useState(0);
+
+  useEffect(() => {
+    if (isOpen) setDisplayCount(relationshipIds.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const minDate = addDays(1);
 
@@ -77,7 +87,7 @@ export const SnoozeSheet: React.FC<SnoozeSheetProps> = ({
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-zinc-400" />
                 <span className="text-sm font-semibold text-white">Snooze Until</span>
-                <span className="text-xs text-zinc-500">· {relationshipIds.length} contact{relationshipIds.length !== 1 ? 's' : ''}</span>
+                <span className="text-xs text-zinc-500">· {displayCount} contact{displayCount !== 1 ? 's' : ''}</span>
               </div>
               <button onClick={handleClose} className="text-zinc-500 hover:text-white transition-colors">
                 <X className="w-4 h-4" />
