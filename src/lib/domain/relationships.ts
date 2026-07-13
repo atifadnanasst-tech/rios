@@ -8,6 +8,7 @@ const RELATIONSHIP_SELECT = `
   relationship_temperature, next_best_action, last_outreach_channel,
   classification_confidence, persona, company_type, next_touch_due,
   outreach_status, touch_number, starred, suggested_stage, is_committed,
+  excluded_until,
   contacts ( first_name, last_name, country )
 `;
 

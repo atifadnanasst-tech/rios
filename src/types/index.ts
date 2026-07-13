@@ -43,6 +43,7 @@ export interface Relationship {
   aiConfidence: number; // percentage (e.g. 85)
   tags: string[];
   whyToday: string;
+  excludedUntil: string | null; // set while snoozed; the date they resurface
 }
 
 export interface WorkItem {

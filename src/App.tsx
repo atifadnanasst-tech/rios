@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import type { RelationshipSearchResult } from './lib/domain/search';
 import {
   SlidersHorizontal,
   ChevronDown,
@@ -64,6 +65,11 @@ export default function App() {
   const [showBriefing, setShowBriefing] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showPasteReply, setShowPasteReply] = useState(false);
+  // Set only when Enrichment's "Save & Log Interaction" hands off to Log
+  // Interaction — takes priority over activeContactForModals for that one
+  // open, since the enriched contact might not be who's currently selected
+  // in the right panel. Cleared as soon as Log Interaction closes.
+  const [chainedLogContact, setChainedLogContact] = useState<RelationshipSearchResult | undefined>(undefined);
   const [showImportInteractions, setShowImportInteractions] = useState(false);
   const [showEnrichment, setShowEnrichment] = useState(false);
   const [showOutreach, setShowOutreach] = useState(false);
@@ -89,6 +95,7 @@ export default function App() {
 
   const isAllContactsTab = store.activeQueueTab === 'all';
   const isArchivedTab = store.activeQueueTab === 'archived';
+  const isSnoozedTab = store.activeQueueTab === 'snoozed';
 
   // Real KPI metrics — queried once on mount
   const [advanceCount, setAdvanceCount] = useState<number | null>(null);
@@ -140,6 +147,11 @@ export default function App() {
   const [archivedTotal, setArchivedTotal] = useState(0);
   const [archivedPage, setArchivedPage] = useState(1);
 
+  // Snoozed tab — server-side paginated, same reasoning as Archived above.
+  const [snoozedItems, setSnoozedItems] = useState<WorkItem[]>([]);
+  const [snoozedTotal, setSnoozedTotal] = useState(0);
+  const [snoozedPage, setSnoozedPage] = useState(1);
+
   // Bulk-select checkboxes store the workItem's own id, regardless of which
   // tab/list it was checked from. Every bulk action (Outreach, Log Activity,
   // Snooze, Archive) then needs to turn those ids back into relationshipIds.
@@ -153,7 +165,8 @@ export default function App() {
       .map(id =>
         store.workItems.find(i => i.id === id)?.relationshipId ??
         allContactsItems.find(i => i.id === id)?.relationshipId ??
-        archivedItems.find(i => i.id === id)?.relationshipId
+        archivedItems.find(i => i.id === id)?.relationshipId ??
+        snoozedItems.find(i => i.id === id)?.relationshipId
       )
       .filter(Boolean) as string[];
   }
@@ -196,6 +209,45 @@ export default function App() {
     }
   }
 
+  // Wake Up Now — bring snoozed contacts back early, on demand. Same
+  // request/confirm/cancel split as Unarchive above, same reasoning:
+  // no reason-picker step exists here to double as a pause point, so a
+  // themed confirm stands in for it.
+  const [showWakeUpConfirm, setShowWakeUpConfirm] = useState(false);
+  const [pendingWakeUpIds, setPendingWakeUpIds] = useState<string[]>([]);
+
+  function requestWakeUp(relationshipIds: string[]) {
+    if (relationshipIds.length === 0) return;
+    setPendingWakeUpIds(relationshipIds);
+    setShowWakeUpConfirm(true);
+  }
+
+  function cancelWakeUp() {
+    setShowWakeUpConfirm(false);
+    setPendingWakeUpIds([]);
+  }
+
+  async function confirmWakeUp() {
+    setShowWakeUpConfirm(false);
+    const relationshipIds = pendingWakeUpIds;
+    if (relationshipIds.length === 0) return;
+
+    try {
+      const { wakeUpRelationshipsBulk, fetchSnoozedRelationshipsPaginated } = await import('./lib/domain/relationships');
+      await wakeUpRelationshipsBulk(relationshipIds);
+      // Refresh the snoozed list — these no longer belong on this tab
+      const { items, total } = await fetchSnoozedRelationshipsPaginated(snoozedPage, itemsPerPage);
+      setSnoozedItems(items);
+      setSnoozedTotal(total);
+      store.clearBulkSelection();
+    } catch (err) {
+      console.error('Failed to wake up:', err);
+      alert(err instanceof Error ? err.message : 'Failed to wake up contact');
+    } finally {
+      setPendingWakeUpIds([]);
+    }
+  }
+
   // Snapshot of relationshipIds for whichever bulk-action popup is currently
   // open (Outreach/Snooze/Log Activity/Archive). Taken ONCE at the moment
   // the button is clicked, not recomputed on every re-render while the
@@ -208,14 +260,16 @@ export default function App() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showPerPageMenu, setShowPerPageMenu] = useState(false);
 
-  const activePage = isAllContactsTab ? allContactsPage : isArchivedTab ? archivedPage : currentPage;
+  const activePage = isAllContactsTab ? allContactsPage : isArchivedTab ? archivedPage : isSnoozedTab ? snoozedPage : currentPage;
   const setActivePage = isAllContactsTab
     ? (p: number) => setAllContactsPage(p)
     : isArchivedTab
     ? (p: number) => setArchivedPage(p)
+    : isSnoozedTab
+    ? (p: number) => setSnoozedPage(p)
     : (p: number) => setCurrentPage(p);
 
-  const activeTotal = isAllContactsTab ? allContactsTotal : isArchivedTab ? archivedTotal : filteredWorkItems.length;
+  const activeTotal = isAllContactsTab ? allContactsTotal : isArchivedTab ? archivedTotal : isSnoozedTab ? snoozedTotal : filteredWorkItems.length;
   const totalPages = Math.max(1, Math.ceil(activeTotal / itemsPerPage));
   const safePage = Math.min(activePage, totalPages);
   const pageStart = activeTotal === 0 ? 0 : (safePage - 1) * itemsPerPage + 1;
@@ -224,6 +278,8 @@ export default function App() {
     ? allContactsItems
     : isArchivedTab
     ? archivedItems
+    : isSnoozedTab
+    ? snoozedItems
     : filteredWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   // Load All Contacts from server when that tab is active
@@ -247,6 +303,18 @@ export default function App() {
     );
   }, [isArchivedTab, archivedPage, itemsPerPage]);
 
+  // Load Snoozed contacts from server when that tab is active — same
+  // pattern as Archived above, soonest-resurface-first ordering happens
+  // server-side in fetchSnoozedRelationshipsPaginated itself.
+  useEffect(() => {
+    if (!isSnoozedTab) return;
+    import('./lib/domain/relationships').then(({ fetchSnoozedRelationshipsPaginated }) =>
+      fetchSnoozedRelationshipsPaginated(snoozedPage, itemsPerPage)
+        .then(({ items, total }) => { setSnoozedItems(items); setSnoozedTotal(total); })
+        .catch(console.error)
+    );
+  }, [isSnoozedTab, snoozedPage, itemsPerPage]);
+
   // Reset to page 1 whenever the underlying filter/search/tab changes —
   // otherwise you could land on a stale page number that's now empty or
   // out of range for a newly-narrowed result set.
@@ -254,6 +322,7 @@ export default function App() {
     setCurrentPage(1);
     setAllContactsPage(1);
     setArchivedPage(1);
+    setSnoozedPage(1);
   }, [store.activeQueueTab, store.activeCategoryFilter, store.searchQuery]);
 
   // If exactly one relationship is currently active in the Advisor panel,
@@ -338,7 +407,8 @@ export default function App() {
       nextBestAction: `Reach out via ${newRelChannel} and introduce product capabilities.`,
       aiConfidence: 80,
       tags: ['New Account'],
-      whyToday: `${newRelName} was recently added to RIOS. Perfect timing to establish a professional line of communication.`
+      whyToday: `${newRelName} was recently added to RIOS. Perfect timing to establish a professional line of communication.`,
+      excludedUntil: null
     };
 
     const newWorkItem = {
@@ -573,6 +643,8 @@ export default function App() {
                         }}
                         isArchived={isArchivedTab}
                         onRequestUnarchive={() => requestUnarchive([item.relationshipId])}
+                        isSnoozed={isSnoozedTab}
+                        onRequestWakeUp={() => requestWakeUp([item.relationshipId])}
                       />
                     </motion.div>
                   ))
@@ -736,6 +808,8 @@ export default function App() {
         }}
         isArchivedTab={isArchivedTab}
         onUnarchive={() => requestUnarchive(resolveRelationshipIds(store.selectedWorkItemIds))}
+        isSnoozedTab={isSnoozedTab}
+        onWakeUp={() => requestWakeUp(resolveRelationshipIds(store.selectedWorkItemIds))}
         onClear={() => store.clearBulkSelection()}
       />
 
@@ -983,9 +1057,12 @@ export default function App() {
       {/* MODAL OVERLAY 3: PASTE REPLY (single message) */}
       <LogInteractionModal
         isOpen={showPasteReply}
-        onClose={() => setShowPasteReply(false)}
+        onClose={() => {
+          setShowPasteReply(false);
+          setChainedLogContact(undefined);
+        }}
         onLogged={(relId) => store.refreshRelationshipFields(relId)}
-        initialContact={activeContactForModals}
+        initialContact={chainedLogContact || activeContactForModals}
       />
 
       {/* MODAL OVERLAY 4: IMPORT INTERACTIONS (bulk AI parse) */}
@@ -1000,6 +1077,11 @@ export default function App() {
         isOpen={showEnrichment}
         onClose={() => setShowEnrichment(false)}
         onEnriched={(relId) => store.refreshRelationshipFields(relId)}
+        onEnrichAndLog={(contact) => {
+          setShowEnrichment(false);
+          setChainedLogContact(contact);
+          setShowPasteReply(true);
+        }}
         initialContact={activeContactForModals}
       />
 
@@ -1055,6 +1137,16 @@ export default function App() {
         cancelLabel="Cancel"
         onConfirm={confirmUnarchive}
         onCancel={cancelUnarchive}
+      />
+
+      <ConfirmDialog
+        isOpen={showWakeUpConfirm}
+        title={pendingWakeUpIds.length === 1 ? 'Wake up this contact?' : `Wake up ${pendingWakeUpIds.length} contacts?`}
+        message="They'll re-enter your active queues starting today, instead of waiting for their scheduled date."
+        confirmLabel="Wake Up"
+        cancelLabel="Cancel"
+        onConfirm={confirmWakeUp}
+        onCancel={cancelWakeUp}
       />
     </div>
   );

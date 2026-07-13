@@ -13,6 +13,7 @@ interface LinkedinEnrichmentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEnriched?: (relationshipId: string) => void;
+  onEnrichAndLog?: (contact: RelationshipSearchResult) => void;
   initialContact?: RelationshipSearchResult;
 }
 
@@ -29,6 +30,7 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
   isOpen,
   onClose,
   onEnriched,
+  onEnrichAndLog,
   initialContact,
 }) => {
   const [step, setStep] = useState<Step>('input');
@@ -148,7 +150,7 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
     }
   }
 
-  async function handleApply() {
+  async function handleApply(chainToLog: boolean = false) {
     if (!parsed || !selected) return;
     const pendingDecisions = companyDecisions.filter((d) => d.decision === 'pending');
     if (pendingDecisions.length > 0) {
@@ -166,8 +168,18 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
       }
       const result = await applyLinkedinEnrichment(selected.id, selected.contactId, parsed, overrides);
       console.log('Enrichment write result:', JSON.stringify(result));
-      onEnriched?.(selected.id);
-      setStep('done');
+
+      if (chainToLog) {
+        // Skip the 'done' screen entirely — the natural next step (logging
+        // the interaction) already confirms the save succeeded, so showing
+        // an intermediate screen just to click through it is pure friction.
+        const contactToLog = selected;
+        onEnrichAndLog?.(contactToLog);
+        resetAndClose();
+      } else {
+        onEnriched?.(selected.id);
+        setStep('done');
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('Enrichment write failed:', message);
@@ -501,13 +513,13 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
             )}
 
             {step === 'preview' && (
-              <div className="px-6 py-4 border-t border-white/[0.06] shrink-0">
+              <div className="px-6 py-4 border-t border-white/[0.06] shrink-0 space-y-2">
                 <div className="flex gap-3">
                   <button onClick={() => setStep('input')} className="flex-1 h-9 rounded-lg border border-white/10 text-xs text-zinc-400 hover:text-white transition-colors">
                     Back
                   </button>
                   <button
-                    onClick={handleApply}
+                    onClick={() => handleApply(false)}
                     disabled={applying || companyDecisions.some((d) => d.decision === 'pending')}
                     className="flex-1 h-9 rounded-lg bg-rios-purple text-white text-xs font-semibold hover:bg-rios-purple/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                   >
@@ -518,6 +530,17 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
                     )}
                   </button>
                 </div>
+                <button
+                  onClick={() => handleApply(true)}
+                  disabled={applying || companyDecisions.some((d) => d.decision === 'pending')}
+                  className="w-full h-9 rounded-lg border border-rios-purple/30 text-rios-purple text-xs font-semibold hover:bg-rios-purple/10 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {applying ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...</>
+                  ) : (
+                    'Save & Log Interaction'
+                  )}
+                </button>
               </div>
             )}
           </motion.div>

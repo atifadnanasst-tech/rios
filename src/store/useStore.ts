@@ -10,7 +10,7 @@ interface RIOSState {
   completedToday: WorkItem[]; // items completed this session — shown in Completed Today tab
   selectedWorkItemId: string | null;
   selectedWorkItemIds: string[]; // For bulk operations
-  activeQueueTab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived';
+  activeQueueTab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived' | 'snoozed';
   activeCategoryFilter: 'all' | RelationshipCategory;
   searchQuery: string;
   isLoading: boolean;
@@ -22,7 +22,7 @@ interface RIOSState {
   toggleSelectWorkItemForBulk: (id: string) => void;
   selectAllWorkItems: (checked: boolean) => void;
   clearBulkSelection: () => void;
-  setQueueTab: (tab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived') => void;
+  setQueueTab: (tab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived' | 'snoozed') => void;
   setCategoryFilter: (category: 'all' | RelationshipCategory) => void;
   setSearchQuery: (query: string) => void;
   completeWorkItem: (id: string) => void;
@@ -95,6 +95,7 @@ export const useStore = create<RIOSState>((set, get) => ({
             aiConfidence: 80,
             tags: [],
             whyToday: 'Outreached today',
+            excludedUntil: null,
           },
           category: 'building' as const,
           description: 'Outreached today — follow up in 7 days',
@@ -449,6 +450,8 @@ export const getFilteredWorkItems = (state: ReturnType<typeof useStore.getState>
   } else if (state.activeQueueTab === 'completed') {
     return state.completedToday;
   } else if (state.activeQueueTab === 'archived') {
+    return [];
+  } else if (state.activeQueueTab === 'snoozed') {
     return [];
   }
 

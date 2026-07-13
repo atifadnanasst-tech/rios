@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Clock, Check, Layers, ChevronDown, X, Archive, ArchiveRestore } from 'lucide-react';
+import { Sparkles, Clock, Check, Layers, ChevronDown, X, Archive, ArchiveRestore, AlarmClock } from 'lucide-react';
 import { RelationshipStage } from '../../types/index.ts';
 import { PHASES } from '../ui/StageIndicator.tsx';
 
@@ -13,6 +13,8 @@ interface BulkToolbarProps {
   onArchive: () => void;
   isArchivedTab?: boolean;
   onUnarchive: () => void;
+  isSnoozedTab?: boolean;
+  onWakeUp: () => void;
   onClear: () => void;
   id?: string;
 }
@@ -26,6 +28,8 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
   onArchive,
   isArchivedTab,
   onUnarchive,
+  isSnoozedTab,
+  onWakeUp,
   onClear,
   id
 }) => {
@@ -152,6 +156,17 @@ export const BulkToolbar: React.FC<BulkToolbarProps> = ({
                       >
                         <ArchiveRestore className="w-3.5 h-3.5" />
                         Unarchive
+                      </button>
+                    ) : isSnoozedTab ? (
+                      <button
+                        onClick={() => {
+                          setShowBulkActionDropdown(false);
+                          onWakeUp();
+                        }}
+                        className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+                      >
+                        <AlarmClock className="w-3.5 h-3.5" />
+                        Wake Up Now
                       </button>
                     ) : (
                       <button

@@ -32,6 +32,7 @@ export type RelationshipRow = {
   starred: boolean;
   is_committed: boolean;
   suggested_stage: string | null;
+  excluded_until: string | null;
   contacts: {
     first_name: string;
     last_name: string | null;
@@ -98,6 +99,7 @@ export function mapRowToRelationship(row: RelationshipRow): Relationship {
     nextBestAction: row.next_best_action || 'No specific action recommended yet.',
     aiConfidence: row.classification_confidence ? CONFIDENCE_TO_PERCENT[row.classification_confidence] : 50,
     suggestedChannel: mapDbChannelToFrontend(row.last_outreach_channel),
+    excludedUntil: row.excluded_until,
   } as Relationship;
 }
 

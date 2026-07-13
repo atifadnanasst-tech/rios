@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'motion/react';
 
-type QueueTabId = 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived';
+type QueueTabId = 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived' | 'snoozed';
 
 interface QueueTabOption {
   id: QueueTabId;
@@ -27,6 +27,7 @@ export const QueueTabs: React.FC<QueueTabsProps> = ({
     { id: 'commitments', label: 'Committed' },
     { id: 'completed', label: 'Completed Today' },
     { id: 'archived', label: 'Archived' },
+    { id: 'snoozed', label: 'Snoozed' },
   ] as QueueTabOption[],
   className = '',
   id
