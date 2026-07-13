@@ -359,3 +359,62 @@ export async function fetchArchivedRelationshipsPaginated(
   const items = ((data as unknown as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
   return { items, total: count || 0 };
 }
+
+// ============================================================
+// SNOOZE RESURFACING FEATURE
+// ============================================================
+// snoozeContacts() (outreach.ts) writes excluded_until and clears
+// next_touch_due. The daily-relationship-sweep Edge Function now checks
+// excluded_until automatically each night and brings people back on
+// schedule (see supabase/functions/daily-relationship-sweep/index.ts).
+// These two functions are the manual, user-facing side: browse who's
+// currently snoozed, and bring someone back early if you want to.
+
+// Real server-side paginated browse of SNOOZED contacts only — ordered
+// soonest-resurface-first, so whoever's coming back next is always at
+// the top. Excludes archived contacts too, since archiving always clears
+// excluded_until anyway (the two states shouldn't overlap in practice).
+export async function fetchSnoozedRelationshipsPaginated(
+  page: number,
+  pageSize: number
+): Promise<{ items: WorkItem[]; total: number }> {
+  const offset = (page - 1) * pageSize;
+
+  const { data, error, count } = await supabase
+    .from('relationships')
+    .select(RELATIONSHIP_SELECT, { count: 'exact' })
+    .not('excluded_until', 'is', null)
+    .is('archived_at', null)
+    .order('excluded_until', { ascending: true })
+    .range(offset, offset + pageSize - 1);
+
+  if (error) throw new Error(`Failed to fetch snoozed contacts: ${error.message}`);
+  const items = ((data as unknown as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
+  return { items, total: count || 0 };
+}
+
+// Bring snoozed contacts back early, on demand — same end state as the
+// automatic cron resurfacing, just triggered by a person instead of a
+// date arriving. Logs the same 'resurfaced' event type, with a different
+// reason/source so the audit trail shows which path brought them back.
+export async function wakeUpRelationshipsBulk(relationshipIds: string[]): Promise<void> {
+  if (relationshipIds.length === 0) return;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { error: updateError } = await supabase
+    .from('relationships')
+    .update({ excluded_until: null, exclusion_reason: null, next_touch_due: today })
+    .in('id', relationshipIds);
+
+  if (updateError) throw new Error(`Failed to wake up contacts: ${updateError.message}`);
+
+  const events = relationshipIds.map((id) => ({
+    relationship_id: id,
+    event_type: 'resurfaced',
+    reason: 'Manually woken up early',
+    source: 'manual',
+  }));
+
+  const { error: eventError } = await supabase.from('relationship_events').insert(events);
+  if (eventError) console.error('Failed to log resurfaced events:', eventError.message);
+}

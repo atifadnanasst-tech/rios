@@ -55,6 +55,48 @@ Deno.serve(async (req) => {
       console.log(`Sweep starting for ${today}, org ${org.id}`);
       let newTouchCount = 0;
       let cadenceCount = 0;
+      let resurfacedCount = 0;
+
+      // ── Snoozed contacts whose resurface date has arrived ─────────────────
+      // snoozeContacts() (outreach.ts) writes excluded_until and clears
+      // next_touch_due when someone is snoozed. Until this step existed,
+      // nothing ever read excluded_until back — so snoozed contacts never
+      // actually came back on their own once the date arrived. This finds
+      // them, brings them back into the active queue, and logs the event
+      // so there's a real audit trail (matches the archived/unarchived
+      // pattern already used elsewhere).
+      const { data: dueToResurface, error: resurfaceErr } = await supabase
+        .from('relationships')
+        .select('id')
+        .eq('organisation_id', org.id)
+        .not('outreach_status', 'in', '("opted_out","do_not_contact")')
+        .is('archived_at', null)
+        .not('excluded_until', 'is', null)
+        .lte('excluded_until', today);
+
+      if (resurfaceErr) { console.error('Failed to fetch snoozed contacts due to resurface:', resurfaceErr.message); }
+
+      if (dueToResurface && dueToResurface.length > 0) {
+        const resurfaceIds = dueToResurface.map((r: any) => r.id);
+        const { error: resurfaceUpdateErr } = await supabase
+          .from('relationships')
+          .update({ excluded_until: null, exclusion_reason: null, next_touch_due: today })
+          .in('id', resurfaceIds);
+
+        if (resurfaceUpdateErr) {
+          console.error('Failed to resurface snoozed contacts:', resurfaceUpdateErr.message);
+        } else {
+          resurfacedCount = resurfaceIds.length;
+          const events = resurfaceIds.map((id: string) => ({
+            relationship_id: id,
+            event_type: 'resurfaced',
+            reason: 'Snooze period ended',
+            source: 'cron',
+          }));
+          const { error: eventErr } = await supabase.from('relationship_events').insert(events);
+          if (eventErr) console.error('Failed to log resurfaced events:', eventErr.message);
+        }
+      }
 
       // ── Funnel 1: cadence contacts whose next_touch_due arrived ──────────
       // These already have their date set from a previous sweep or touch log.
@@ -101,7 +143,7 @@ Deno.serve(async (req) => {
         .update({ daily_sweep_last_run_date: today })
         .eq('id', org.id);
 
-      console.log(`Sweep complete for ${today}: ${cadenceCount} follow-ups due, ${newTouchCount} new touches selected. Zero AI calls.`);
+      console.log(`Sweep complete for ${today}: ${cadenceCount} follow-ups due, ${newTouchCount} new touches selected, ${resurfacedCount} snoozed contacts resurfaced. Zero AI calls.`);
     }
   }
 
