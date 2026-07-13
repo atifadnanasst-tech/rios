@@ -20,7 +20,9 @@ import {
   RefreshCw,
   Trash2,
   HelpCircle,
-  AlertCircle
+  AlertCircle,
+  Send,
+  ChevronLeft
 } from 'lucide-react';
 import { WorkItem, RelationshipStage, CommunicationChannel } from '../../types/index.ts';
 import { Avatar } from '../ui/Avatar.tsx';
@@ -34,6 +36,7 @@ import { recordAiFeedback } from '../../lib/domain/aiFeedback';
 import { dismissSuggestedStage, findOrCreateRelationshipForContact } from '../../lib/domain/relationships';
 import { fetchContactBackground } from '../../lib/domain/linkedinEnrichment';
 import { ConfirmDialog } from '../modals/ConfirmDialog.tsx';
+import { fetchAdvisorConversation, sendAdvisorMessage, AdvisorMessage } from '../../lib/domain/advisorChat';
 
 interface RelationshipAdvisorProps {
   item: WorkItem | null;
@@ -192,6 +195,16 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   const [isGettingReply, setIsGettingReply] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
 
+  // Advisor Chat — the real, persistent multi-turn conversation. 'quick'
+  // is today's existing single-shot flow above, completely unchanged.
+  const [advisorMode, setAdvisorMode] = useState<'quick' | 'chat'>('quick');
+  const [chatMessages, setChatMessages] = useState<AdvisorMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [sendingChat, setSendingChat] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const chatScrollRef = React.useRef<HTMLDivElement>(null);
+
   // Background panel — lazy-loaded only when the chevron is clicked,
   // not on every card open. Resets when switching to a different contact.
   const [showBackground, setShowBackground] = useState(false);
@@ -245,6 +258,10 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       setSuggestedReply('');
       setReplyReasoning('');
       setReplyError(null);
+      setAdvisorMode('quick');
+      setChatMessages([]);
+      setChatInput('');
+      setChatError(null);
     }
   }, [item?.relationship.id]);
 
@@ -334,6 +351,56 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       alert('Failed to delete this entry.');
     } finally {
       setDeletingEntryId(null);
+    }
+  }
+
+  // Load the persisted conversation the moment the owner switches into
+  // chat mode — not on every render, and not preemptively for contacts
+  // they haven't opened the chat for, since most contacts will never
+  // have one.
+  React.useEffect(() => {
+    if (advisorMode !== 'chat' || !item) return;
+    setChatLoading(true);
+    setChatError(null);
+    fetchAdvisorConversation(item.relationship.id)
+      .then((messages) => setChatMessages(messages))
+      .catch((err) => setChatError(err instanceof Error ? err.message : 'Failed to load conversation'))
+      .finally(() => setChatLoading(false));
+  }, [advisorMode, item?.relationship.id]);
+
+  // Auto-scroll to the latest message, same reasoning as History's
+  // auto-scroll above — new messages should be immediately visible.
+  React.useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, sendingChat]);
+
+  async function handleSendChatMessage() {
+    const text = chatInput.trim();
+    if (!text || sendingChat || !item) return;
+
+    // Show the owner's own message immediately — no need to wait for the
+    // round-trip, since it's already known and correct.
+    const optimisticUserTurn: AdvisorMessage = {
+      id: `pending-${Date.now()}`,
+      role: 'user',
+      content: text,
+      draftReply: null,
+      createdAt: new Date().toISOString(),
+    };
+    setChatMessages((prev) => [...prev, optimisticUserTurn]);
+    setChatInput('');
+    setSendingChat(true);
+    setChatError(null);
+
+    try {
+      const assistantTurn = await sendAdvisorMessage(item.relationship.id, text);
+      setChatMessages((prev) => [...prev, assistantTurn]);
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : 'Failed to get a response');
+    } finally {
+      setSendingChat(false);
     }
   }
 
@@ -977,12 +1044,90 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
           )}
         </div>
 
-        {/* REPLY ASSISTANT */}
+        {/* REPLY ASSISTANT / ADVISOR CHAT */}
         <div className="pt-2 space-y-3">
           <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-rios-text-muted block">
             Advisor
           </span>
 
+          {advisorMode === 'chat' ? (
+            <div className="space-y-3">
+              <button
+                onClick={() => setAdvisorMode('quick')}
+                className="flex items-center gap-1 text-[10px] font-semibold text-zinc-400 hover:text-white transition-colors"
+              >
+                <ChevronLeft className="w-3 h-3" /> Back to Quick Reply
+              </button>
+
+              <div ref={chatScrollRef} className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                {chatLoading ? (
+                  <div className="text-[11px] text-zinc-500 text-center py-6">Loading conversation...</div>
+                ) : chatMessages.length === 0 ? (
+                  <div className="text-[11px] text-zinc-500 text-center py-6 leading-relaxed">
+                    Ask me anything about this relationship — strategy, stage, how to handle something tricky. I already have their full history loaded.
+                  </div>
+                ) : (
+                  chatMessages.map((m) => (
+                    <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                      <div
+                        className={`max-w-[88%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                          m.role === 'user'
+                            ? 'bg-rios-purple/20 text-white'
+                            : 'bg-zinc-900 border border-white/10 text-zinc-100'
+                        }`}
+                      >
+                        <p className="whitespace-pre-wrap">{m.content}</p>
+                        {m.draftReply && (
+                          <div className="mt-2">
+                            <Composer
+                              initialValue={m.draftReply}
+                              isGenerating={false}
+                              defaultChannel={currentChannel || undefined}
+                              onSend={(text, channel) => handleSendMessage(text, channel)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+                {sendingChat && (
+                  <div className="flex justify-start">
+                    <div className="bg-zinc-900 border border-white/10 rounded-xl px-3 py-2 text-xs text-zinc-500 flex items-center gap-2">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Thinking...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {chatError && <div className="text-[11px] text-red-400">{chatError}</div>}
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendChatMessage();
+                    }
+                  }}
+                  placeholder="Ask anything about this relationship..."
+                  disabled={sendingChat}
+                  className="flex-1 h-9 px-3 bg-zinc-900 border border-white/15 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-rios-purple/60 focus:border-rios-purple/60 transition-all disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSendChatMessage}
+                  disabled={sendingChat || !chatInput.trim()}
+                  className="w-9 h-9 shrink-0 rounded-lg bg-rios-purple text-white flex items-center justify-center hover:bg-opacity-90 transition-all disabled:opacity-50"
+                  title="Send"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
           <AnimatePresence mode="wait">
             {suggestedReply ? (
               <motion.div
@@ -1042,7 +1187,7 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
 
                 {replyError && <div className="text-[11px] text-red-400">{replyError}</div>}
 
-                <div className="flex gap-1">
+                <div className="flex gap-2">
                   <button
                     onClick={handleGetReply}
                     disabled={isGettingReply}
@@ -1060,16 +1205,18 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
                     )}
                   </button>
                   <button
-                    className="px-3 rounded-xl bg-zinc-900 border border-white/5 hover:bg-zinc-800 transition-all text-zinc-400 hover:text-white cursor-pointer"
-                    onClick={() => alert('Coaching Conversation — a full multi-turn strategy discussion with your AI advisor. Coming next.')}
+                    onClick={() => setAdvisorMode('chat')}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-zinc-900 border border-white/5 hover:bg-zinc-800 transition-all text-zinc-300 hover:text-white text-xs font-bold cursor-pointer"
                     title="Start Coaching Conversation"
                   >
                     <MessageSquare className="w-4 h-4" />
+                    <span>Coaching Conversation</span>
                   </button>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
+          )}
         </div>
       </div>
 
