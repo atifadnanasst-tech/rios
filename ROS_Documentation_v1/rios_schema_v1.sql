@@ -837,4 +837,12 @@ $$;
 
 grant execute on function unarchive_relationships_bulk(uuid[]) to anon;
 
+-- Fix: work_items table was missing UPDATE permission, needed by
+-- archive_relationship() to cancel pending to-dos when archiving.
+-- Added 2026-07-12.
+grant update on work_items to anon;
+create policy "dev_anon_update_work_items" on work_items for update using (true);
+
+
+
 -- ============================================================

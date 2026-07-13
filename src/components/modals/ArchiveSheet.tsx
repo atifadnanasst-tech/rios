@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Archive as ArchiveIcon, Check, Loader2 } from 'lucide-react';
 import { archiveRelationshipsBulk } from '../../lib/domain/relationships';
@@ -27,27 +27,40 @@ export const ArchiveSheet: React.FC<ArchiveSheetProps> = ({
   const [customReason, setCustomReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const isOther = selectedReason === 'Other';
   const finalReason = isOther ? customReason.trim() : selectedReason;
   const canConfirm = isOther ? customReason.trim().length > 0 : selectedReason.length > 0;
 
+  useEffect(() => {
+    function handleEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isOpen) handleClose();
+    }
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   function handleClose() {
     setSelectedReason('');
     setCustomReason('');
     setDone(false);
+    setErrorMsg('');
     onClose();
   }
 
   async function handleArchive() {
     if (!canConfirm) return;
     setSaving(true);
+    setErrorMsg('');
     try {
       await archiveRelationshipsBulk(relationshipIds, finalReason);
       onArchived(relationshipIds);
       setDone(true);
     } catch (err) {
       console.error('Archive failed:', err);
+      setErrorMsg(err instanceof Error ? err.message : 'Something went wrong — please try again.');
     } finally {
       setSaving(false);
     }
@@ -137,6 +150,13 @@ export const ArchiveSheet: React.FC<ArchiveSheetProps> = ({
                       autoFocus
                       className="w-full bg-zinc-900 border border-white/10 rounded-lg text-xs text-zinc-200 placeholder-zinc-600 px-3 py-2 focus:outline-none focus:border-rios-purple/40 transition-all"
                     />
+                  </div>
+                )}
+
+                {/* Error — shown directly here instead of only in the hidden browser console */}
+                {errorMsg && (
+                  <div className="px-3 py-2 rounded-lg bg-red-950/40 border border-red-500/20 text-xs text-red-300">
+                    {errorMsg}
                   </div>
                 )}
 
