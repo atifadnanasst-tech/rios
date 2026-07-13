@@ -221,7 +221,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer Version Info */}
       <div className={`p-4 border-t border-rios-border bg-zinc-950/20 flex items-center select-none ${collapsed ? 'justify-center' : 'justify-between'}`}>
-        {!collapsed && <span className="text-[10px] font-mono text-rios-text-muted tracking-wider">RIOS v1.3.1</span>}
+        {!collapsed && <span className="text-[10px] font-mono text-rios-text-muted tracking-wider">RIOS v1.4.0</span>}
         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" title="System Connected" />
       </div>
     </div>
