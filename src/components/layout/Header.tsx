@@ -162,6 +162,11 @@ export const Header: React.FC<HeaderProps> = ({ onShowAIBriefing, id }) => {
                         Archived
                       </span>
                     )}
+                    {!r.isArchived && r.isSnoozed && (
+                      <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-500/80 bg-amber-950/30 border border-amber-500/20 px-1.5 py-0.5 rounded">
+                        Snoozed
+                      </span>
+                    )}
                   </div>
                   <div className="text-[10px] text-zinc-400">
                     {r.position} {r.position && r.company ? '·' : ''} {r.company}

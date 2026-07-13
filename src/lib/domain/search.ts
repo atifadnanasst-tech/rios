@@ -8,6 +8,7 @@ export type RelationshipSearchResult = {
   position: string | null;
   lastChannel: 'LinkedIn' | 'Email' | 'WhatsApp' | 'Phone' | null;
   isArchived: boolean;
+  isSnoozed: boolean;
 };
 
 // Searches ALL relationships in Supabase directly — unlike the header search,
@@ -15,16 +16,19 @@ export type RelationshipSearchResult = {
 // the browser. Needed for "have I talked to this person before?" style lookups
 // where the contact might not be in today's top-scored work queue at all.
 //
-// Deliberately includes archived contacts (rather than filtering them out
-// like the main queues do) — search is how you'd find and unarchive someone,
-// or confirm you already handled them. isArchived lets the UI label them.
+// Deliberately includes archived and snoozed contacts (rather than filtering
+// them out like the main queues do) — search is how you'd find and unarchive
+// or wake someone up, or confirm you already handled them. isArchived/
+// isSnoozed let the UI label them (archived always supersedes snoozed in the
+// data itself — archiving clears excluded_until — so a contact is never
+// truly both at once, but the UI checks isArchived first anyway to be safe).
 export async function searchRelationships(query: string, limit = 10): Promise<RelationshipSearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) return []; // avoid firing a query on every single keystroke of a 1-char input
 
   const { data, error } = await supabase
     .from('relationships')
-    .select('id, contact_id, company, position, last_outreach_channel, archived_at, contacts!inner(first_name, last_name)')
+    .select('id, contact_id, company, position, last_outreach_channel, archived_at, excluded_until, contacts!inner(first_name, last_name)')
     .or(`first_name.ilike.%${trimmed}%,last_name.ilike.%${trimmed}%`, { foreignTable: 'contacts' })
     .limit(limit);
 
@@ -40,6 +44,7 @@ export async function searchRelationships(query: string, limit = 10): Promise<Re
       position: row.position,
       lastChannel: row.last_outreach_channel,
       isArchived: row.archived_at != null,
+      isSnoozed: row.excluded_until != null,
     };
   });
 }
