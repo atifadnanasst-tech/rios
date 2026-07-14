@@ -12,11 +12,19 @@ type OrgSettings = {
   daily_sweep_hour_utc: number;
   daily_sweep_minute_utc: number;
   default_goal: string;
+  advisor_coaching_level: string;
 };
 
 const AI_MODELS = [
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini — Fast · Affordable · Recommended' },
   { value: 'gpt-4o', label: 'GPT-4o — Premium · Best quality · ~15× cost' },
+];
+
+const COACHING_LEVELS = [
+  { value: 'Foundational', label: 'Foundational — explain the fundamentals, more scaffolding' },
+  { value: 'Developing', label: 'Developing — building strategy and nuance' },
+  { value: 'Proficient', label: 'Proficient — refining executive polish' },
+  { value: 'Executive', label: 'Executive — sharp strategic sparring, no hand-holding' },
 ];
 
 const GOALS = [
@@ -58,6 +66,16 @@ const ModelSelect = ({ value, onChange }: { value: string; onChange: (v: string)
   </select>
 );
 
+const CoachingLevelSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+  <select
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    className="bg-zinc-900 border border-white/10 rounded-lg text-[11px] text-zinc-200 px-2.5 py-1.5 focus:outline-none focus:border-rios-purple/40 transition-all"
+  >
+    {COACHING_LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+  </select>
+);
+
 export const SettingsScreen: React.FC = () => {
   const [s, setS] = useState<OrgSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +85,7 @@ export const SettingsScreen: React.FC = () => {
   useEffect(() => {
     supabase
       .from('organisations')
-      .select('id,name,subscription_tier,ai_analysis_model,ai_draft_model,daily_new_touch_cap,daily_sweep_hour_utc,daily_sweep_minute_utc,default_goal')
+      .select('id,name,subscription_tier,ai_analysis_model,ai_draft_model,daily_new_touch_cap,daily_sweep_hour_utc,daily_sweep_minute_utc,default_goal,advisor_coaching_level')
       .limit(1).single()
       .then(({ data, error }) => {
         if (!error && data) setS(data as OrgSettings);
@@ -88,6 +106,7 @@ export const SettingsScreen: React.FC = () => {
       daily_sweep_hour_utc: s.daily_sweep_hour_utc,
       daily_sweep_minute_utc: s.daily_sweep_minute_utc,
       default_goal: s.default_goal,
+      advisor_coaching_level: s.advisor_coaching_level,
     }).eq('id', s.id);
     setSaving(false);
     if (!error) { setSaved(true); setTimeout(() => setSaved(false), 2500); }
@@ -116,6 +135,14 @@ export const SettingsScreen: React.FC = () => {
             </Row>
             <Row label="Generate Reply Draft" sub="The actual message draft sent to your contact">
               <ModelSelect value={s.ai_draft_model} onChange={(v) => patch('ai_draft_model', v)} />
+            </Row>
+          </Section>
+
+          <div className="border-t border-white/[0.05]" />
+
+          <Section title="Advisor Coaching">
+            <Row label="Coaching intensity" sub="How hard the Advisor Chat pushes your communication, beyond just drafting messages for you">
+              <CoachingLevelSelect value={s.advisor_coaching_level} onChange={(v) => patch('advisor_coaching_level', v)} />
             </Row>
           </Section>
 

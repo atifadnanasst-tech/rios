@@ -859,6 +859,12 @@ alter type event_type add value if not exists 'resurfaced';
 -- Full migration: supabase/migrations/20260713173819_add_advisor_chat.sql
 -- ============================================================
 
-
+-- ============================================================
+-- ADVISOR CHAT — COACHING LEVEL — added 2026-07-13
+-- New enum + column on organisations: how intensively the Advisor
+-- should coach vs. just support. Scoped to the account for now since
+-- real multi-user login doesn't exist yet; moves to per-user later
+-- with the same pattern, no redesign.
+-- ============================================================
 
 -- ============================================================

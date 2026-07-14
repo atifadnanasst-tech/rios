@@ -37,6 +37,7 @@ import { dismissSuggestedStage, findOrCreateRelationshipForContact } from '../..
 import { fetchContactBackground } from '../../lib/domain/linkedinEnrichment';
 import { ConfirmDialog } from '../modals/ConfirmDialog.tsx';
 import { fetchAdvisorConversation, sendAdvisorMessage, AdvisorMessage } from '../../lib/domain/advisorChat';
+import { FormattedCoachingText } from '../ui/FormattedCoachingText.tsx';
 
 interface RelationshipAdvisorProps {
   item: WorkItem | null;
@@ -1076,7 +1077,11 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
                             : 'bg-zinc-900 border border-white/10 text-zinc-100'
                         }`}
                       >
-                        <p className="whitespace-pre-wrap">{m.content}</p>
+                        {m.role === 'assistant' ? (
+                          <FormattedCoachingText text={m.content} />
+                        ) : (
+                          <p className="whitespace-pre-wrap">{m.content}</p>
+                        )}
                         {m.draftReply && (
                           <div className="mt-2">
                             <Composer

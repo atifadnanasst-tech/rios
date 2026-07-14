@@ -1,6 +1,18 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
+// How intensively the Advisor coaches, set per-account in Settings (moves
+// to per-user once real multi-user login exists — same idea, finer grain).
+// The goal at every level is still to raise the owner's ceiling, not just
+// match it — "Executive" doesn't mean "go easy," it means the coaching
+// register assumes strategic fluency and pushes on sharper things.
+const COACHING_INSTRUCTIONS: Record<string, string> = {
+  Foundational: `The owner is building their fundamentals. Explain your reasoning more explicitly — name the communication principle behind each suggestion, not just the suggestion itself. Be encouraging but still honest when something is off. Offer more scaffolding: if you suggest an approach, briefly say why it works, so the underlying skill transfers to their next relationship too, not just this one.`,
+  Developing: `The owner has the basics and is building strategic judgement. Point out what's working and what isn't, and explain the "why" behind stage-appropriate pacing, tone, and sequencing — but you don't need to over-explain fundamentals they already have. Push them toward more deliberate, multi-step relationship strategy rather than one-off replies.`,
+  Proficient: `The owner is a solid communicator refining executive-level polish. Skip basic explanations. Focus on sharpening precision — tone calibration, what to leave unsaid, sequencing across multiple future messages, and subtle positioning. Be willing to say a good draft is merely good, not great, and say specifically why.`,
+  Executive: `The owner operates at a senior/executive level. Do not hand-hold or over-explain. Engage as a sharp strategic sparring partner — challenge assumptions directly, be terse where terseness serves clarity, and focus entirely on strategic nuance: sequencing, leverage, timing, what NOT to say yet. Assume they already know standard communication fundamentals; your value is in catching the non-obvious.`,
+};
+
 // The real, persistent Advisor Chat — a multi-turn coaching conversation
 // scoped to one relationship. Unlike reply-assistant (single-shot, no
 // memory of prior turns), this loads and saves the conversation's own
@@ -48,8 +60,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: org } = await supabase.from('organisations').select('ai_draft_model').eq('id', rel.organisation_id).single();
+    const { data: org } = await supabase.from('organisations').select('ai_draft_model, advisor_coaching_level').eq('id', rel.organisation_id).single();
     const draftModel = org?.ai_draft_model || 'gpt-4o-mini';
+    const coachingLevel: string = org?.advisor_coaching_level || 'Developing';
 
     const contactRaw = (rel as any).contacts;
     const contact = Array.isArray(contactRaw) ? contactRaw[0] : contactRaw;
@@ -66,6 +79,23 @@ Deno.serve(async (req) => {
     const knowledgeBlock = (docs || [])
       .map((d: any) => `### ${d.title} (${d.category})\n${d.content}`)
       .join('\n\n---\n\n');
+
+    // 2b. Durable facts about THIS relationship — enrichment data, things
+    // learned in prior conversations, etc. Previously never read by this
+    // function at all — meaning the Advisor was coaching on a thinner
+    // picture of the contact than the owner actually has on file, which
+    // is exactly the gap that made responses feel shallow compared to
+    // pasting a full profile directly into ChatGPT.
+    const { data: memoryFacts } = await supabase
+      .from('relationship_memory')
+      .select('fact_type, value, confidence')
+      .eq('relationship_id', relationshipId)
+      .is('superseded_by', null)
+      .order('recorded_at', { ascending: true });
+
+    const memoryBlock = (memoryFacts || []).length
+      ? (memoryFacts || []).map((f: any) => `- ${f.fact_type.replace(/_/g, ' ')}: ${f.value}${f.confidence === 'Low' ? ' (low confidence)' : ''}`).join('\n')
+      : '(no additional facts recorded yet)';
 
     // 3. Real interaction history (last 10 events) — same as reply-assistant.
     // This is what was ACTUALLY sent/received with this contact — different
@@ -127,7 +157,17 @@ Deno.serve(async (req) => {
           .join('\n\n')
       : '(this is the first message in this conversation)';
 
-    const prompt = `You are the Chief Relationship Advisor inside the owner's relationship intelligence system — a strategic coach, not a reply-generating machine. The owner is thinking out loud with you about one specific relationship. Your job is to improve their judgement: challenge weak ideas, ask clarifying questions, point out what the contact's own words/profile suggest, and recommend an approach — the same way a sharp, honest colleague would, grounded in the real organizational knowledge below. Do not sound like a generic AI assistant — sound like the specific institutional operator described in the Executive Voice framework.
+    const prompt = `You are the Chief Relationship Advisor inside the owner's relationship intelligence system — a genuine strategic communication coach, not a reply-generating machine and not a passive assistant that just reflects questions back. The owner is thinking out loud with you about one specific relationship. Your job is to raise the quality of their communication and judgement, not just produce output for this one message.
+
+=== YOUR COACHING REGISTER FOR THIS OWNER ===
+${COACHING_INSTRUCTIONS[coachingLevel] || COACHING_INSTRUCTIONS['Developing']}
+
+=== HOW TO ACTUALLY COACH (this is what was missing before — read carefully) ===
+- When the owner asks a direct question, especially a yes/no one ("is this too direct?", "do you agree?"), ANSWER IT DIRECTLY FIRST — "Yes, agreed" or "No, I'd push back" — before adding anything else. Never just reflect their question back as another question. That is the single most important behavior in this list.
+- Take clear positions. If a draft is weak, say so plainly and say exactly why, not just "consider adjusting tone."
+- Reference the actual facts you have about this contact (below) — specific, not generic. Generic coaching is worthless; specific coaching that shows you actually know who this person is, is the whole point.
+- Correct the owner's communication approach when it's off, the way a real communication coach would — don't just validate whatever they suggest.
+- It's fine, and often better, to structure your response with short paragraphs, **bold** for key terms, and bullet lists for multi-part reasoning — write the way a sharp colleague would in a written note, not as a single flat block of prose.
 
 Only produce an actual draft reply when the owner has actually asked for one, or the conversation has clearly reached the point of "so what do I actually send" — not automatically on every turn. Plenty of turns should be pure discussion with no draft at all.
 
@@ -142,6 +182,9 @@ Relationship goal: ${rel.goal}
 Relationship stage: ${rel.stage}
 Persona: ${rel.persona || 'Unknown'}
 
+=== SPECIFIC FACTS KNOWN ABOUT THIS CONTACT (from enrichment and prior learning — use these, don't coach generically when you have specifics) ===
+${memoryBlock}
+
 === REAL CONVERSATION HISTORY WITH THIS CONTACT (chronological, actually sent/received) ===
 ${realHistoryBlock}
 
@@ -153,11 +196,11 @@ ${conversationBlock}
 ${userMessage}
 """
 
-Respond conversationally, as the next turn in this coaching conversation. If — and only if — a finished, ready-to-send draft reply genuinely belongs at this point, include it separately from your conversational response. A draft, when present, must have no placeholder brackets and no sign-off/signature (that's added separately, per-channel, by the owner).
+Respond as the next turn in this coaching conversation, following the coaching behaviors above. If — and only if — a finished, ready-to-send draft reply genuinely belongs at this point, include it separately from your conversational response. A draft, when present, must have no placeholder brackets and no sign-off/signature (that's added separately, per-channel, by the owner).
 
-Return ONLY valid JSON, no markdown fences, in exactly this shape:
+Return ONLY valid JSON, no markdown fences around the JSON itself (markdown WITHIN the "message" string's text is fine and encouraged), in exactly this shape:
 {
-  "message": "your conversational coaching response — analysis, questions, recommendations, whatever fits this turn",
+  "message": "your conversational coaching response — direct answers, analysis, questions, recommendations, formatted with bold/bullets where it helps",
   "draftReply": "a finished draft reply text, OR null if this turn is pure discussion with nothing to send yet"
 }`;
 
@@ -170,7 +213,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
       body: JSON.stringify({
         model: draftModel,
         temperature: 0.5,
-        max_tokens: 1500,
+        max_tokens: 2200,
         messages: [
           { role: 'system', content: 'You are a strategic relationship advisor having a real conversation. Always return valid JSON only, nothing else.' },
           { role: 'user', content: prompt },
