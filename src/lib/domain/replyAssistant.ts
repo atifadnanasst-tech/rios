@@ -1,4 +1,4 @@
-import { supabase } from '../supabaseClient';
+import { invokeEdgeFunction } from './invokeFunction';
 
 export type ReplySuggestion = {
   reply: string;
@@ -10,10 +10,7 @@ export async function getReplySuggestion(
   incomingMessage: string,
   userGuidance?: string
 ): Promise<ReplySuggestion> {
-  const { data, error } = await supabase.functions.invoke('reply-assistant', {
-    body: { relationshipId, incomingMessage, userGuidance: userGuidance || undefined },
+  return invokeEdgeFunction<ReplySuggestion>('reply-assistant', {
+    relationshipId, incomingMessage, userGuidance: userGuidance || undefined,
   });
-  if (error) throw new Error(`Reply Assistant failed: ${error.message}`);
-  if (data?.error) throw new Error(data.error);
-  return data as ReplySuggestion;
 }

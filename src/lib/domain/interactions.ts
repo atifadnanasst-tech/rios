@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient';
 import { computeNextTemperature } from './temperature';
 import { triggerIntelligenceRecompute } from './intelligenceRecompute';
+import { advanceCadence } from './cadence';
 
 export type LogInteractionInput = {
   relationshipId: string;
@@ -18,15 +19,14 @@ export type LogInteractionInput = {
 // belongs in code, not in an AI call — replace with real classification
 // later without changing where this function is called from.
 //
-// Fixed 2026-07-14: a sent message used to always push the next touch out
-// by a flat 14 days, forever, regardless of how many times you'd already
-// followed up — never matching the documented escalating cadence
-// (7 → 15 → 21 → 30 → 45 days) and never advancing cadence_step, the
-// counter that schedule depends on. Now it actually reads and advances
-// cadence_step, so the gap between follow-ups genuinely lengthens the
-// longer someone goes without replying, same as the automated nightly
-// sweep already does for the same schedule.
-const CADENCE_SCHEDULE_DAYS = [7, 15, 21, 30, 45];
+// Fixed 2026-07-14: originally a sent message pushed the next touch out
+// by a flat 14 days, forever — never matching the documented escalating
+// cadence, and never advancing cadence_step. Later consolidated onto the
+// same shared advanceCadence() helper now used by every place a sent
+// message gets logged (this file, bulk Outreach, Import Interactions) —
+// a second, independent copy of this same logic was found with an even
+// bigger gap (never set next_touch_due at all), which is exactly the
+// kind of drift a single shared function prevents going forward.
 const DAYS_UNTIL_NEXT_TOUCH_AFTER_RECEIVED = 3;
 
 function addDays(dateStr: string, days: number): string {
@@ -60,8 +60,7 @@ export async function logInteraction(input: LogInteractionInput): Promise<void> 
   if (readError) throw new Error(`Failed to read relationship before update: ${readError.message}`);
 
   if (direction === 'Sent') {
-    const currentStep = current.cadence_step || 0;
-    const daysUntilNext = CADENCE_SCHEDULE_DAYS[Math.min(currentStep, CADENCE_SCHEDULE_DAYS.length - 1)];
+    const { nextTouchDue, cadenceStep } = advanceCadence(current.cadence_step || 0, messageDate);
 
     const { error } = await supabase
       .from('relationships')
@@ -69,8 +68,8 @@ export async function logInteraction(input: LogInteractionInput): Promise<void> 
         last_outreach_date: messageDate,
         last_outreach_channel: channel,
         touch_number: (current.touch_number || 0) + 1,
-        cadence_step: currentStep + 1,
-        next_touch_due: addDays(messageDate, daysUntilNext),
+        cadence_step: cadenceStep,
+        next_touch_due: nextTouchDue,
       })
       .eq('id', relationshipId);
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);

@@ -2,6 +2,7 @@ import { supabase } from '../supabaseClient';
 import type { ParsedConversation } from './importInteractions';
 import { computeNextTemperature } from './temperature';
 import { triggerIntelligenceRecompute } from './intelligenceRecompute';
+import { advanceCadence } from './cadence';
 
 const VALID_REPLY_CLASSIFICATION = new Set(['Positive', 'Neutral', 'Negative', 'Info_Request', 'Not_Interested', 'Bounced']);
 const VALID_BUYING_SIGNAL_STAGE = new Set(['Awareness', 'Interest', 'Consideration', 'Intent', 'Closed_Won', 'Closed_Lost']);
@@ -62,18 +63,28 @@ export async function importParsedConversation(
   const last = parsed.messages[parsed.messages.length - 1];
   const { data: current, error: readError } = await supabase
     .from('relationships')
-    .select('touch_number, relationship_temperature')
+    .select('touch_number, relationship_temperature, cadence_step')
     .eq('id', relationshipId)
     .single();
   if (readError) throw new Error(`Failed to read relationship before update: ${readError.message}`);
 
   if (last.direction === 'Sent') {
+    // Fixed 2026-07-14: this branch used to update touch_number but never
+    // touched next_touch_due or cadence_step at all — so importing a
+    // conversation ending in a sent message left the follow-up date
+    // exactly as stale as it was before the import, completely
+    // disconnected from when the message actually happened. Now uses the
+    // same shared escalating schedule as every other place a sent
+    // message gets logged.
+    const { nextTouchDue, cadenceStep } = advanceCadence(current.cadence_step || 0, last.date || new Date().toISOString().slice(0, 10));
     const { error } = await supabase
       .from('relationships')
       .update({
         last_outreach_date: last.date,
         last_outreach_channel: last.channel,
         touch_number: (current.touch_number || 0) + 1,
+        cadence_step: cadenceStep,
+        next_touch_due: nextTouchDue,
       })
       .eq('id', relationshipId);
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);

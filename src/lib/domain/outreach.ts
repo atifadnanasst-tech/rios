@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '../supabaseClient';
+import { advanceCadence } from './cadence';
 
 // ── Title case normalization ──────────────────────────────────────────────────
 function toTitleCase(str: string): string {
@@ -178,14 +179,14 @@ export function exportOutreachToXlsx(rows: OutreachRow[]): void {
 // ── Mark contacts as outreached (cadence step 1) ─────────────────────────────
 export async function markAsOutreached(rows: OutreachRow[]): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
-  const nextTouchDue = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { nextTouchDue, cadenceStep } = advanceCadence(0, today); // always a first touch here (touch_number was 0)
   const relationshipIds = rows.map(r => r.relationship_id);
 
   const { error: relError } = await supabase
     .from('relationships')
     .update({
       touch_number: 1,
-      cadence_step: 1,
+      cadence_step: cadenceStep,
       next_touch_due: nextTouchDue,
       last_outreach_date: today,
     })
@@ -217,9 +218,11 @@ export async function logBulkActivity(
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
 
-  // Always: increment touch_number, advance cadence, set next touch
-  // Cadence: 7 → 15 → 21 → 30 → 45 days
-  const CADENCE_DAYS = [7, 15, 21, 30, 45];
+  // Always: increment touch_number, advance cadence, set next touch —
+  // using the shared advanceCadence() helper (see cadence.ts) instead of
+  // a local copy of the schedule, since a third independent copy of this
+  // exact logic is exactly what caused this to drift out of sync in the
+  // first place.
 
   // Fetch current cadence steps
   const { data: rels } = await supabase
@@ -228,14 +231,12 @@ export async function logBulkActivity(
     .in('id', relationshipIds);
 
   for (const rel of rels || []) {
-    const nextStep = (rel.cadence_step || 0) + 1;
-    const days = CADENCE_DAYS[Math.min(nextStep - 1, CADENCE_DAYS.length - 1)];
-    const nextDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { nextTouchDue, cadenceStep } = advanceCadence(rel.cadence_step || 0, today);
 
     await supabase.from('relationships').update({
       touch_number: (rel.touch_number || 0) + 1,
-      cadence_step: nextStep,
-      next_touch_due: nextDate,
+      cadence_step: cadenceStep,
+      next_touch_due: nextTouchDue,
       last_outreach_date: today,
     }).eq('id', rel.id);
   }

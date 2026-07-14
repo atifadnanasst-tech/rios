@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { invokeEdgeFunction } from './invokeFunction';
 
 export type AdvisorMessage = {
   id: string;
@@ -39,11 +40,7 @@ export async function fetchAdvisorConversation(relationshipId: string): Promise<
 // the exchange server-side — this only needs to hand back the assistant's
 // reply so the UI can show it immediately.
 export async function sendAdvisorMessage(relationshipId: string, userMessage: string): Promise<AdvisorMessage> {
-  const { data, error } = await supabase.functions.invoke('advisor-chat', {
-    body: { relationshipId, userMessage },
-  });
-  if (error) throw new Error(`Advisor Chat failed: ${error.message}`);
-  if (data?.error) throw new Error(data.error);
+  const data = await invokeEdgeFunction<any>('advisor-chat', { relationshipId, userMessage });
   return {
     id: data.id,
     role: 'assistant',

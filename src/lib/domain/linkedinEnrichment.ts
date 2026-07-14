@@ -1,5 +1,6 @@
 import { supabase } from '../supabaseClient';
 import { findOrCreateCompany, findSimilarCompanies } from './companies';
+import { invokeEdgeFunction } from './invokeFunction';
 
 export type ParsedEnrichment = {
   employment_history: {
@@ -292,11 +293,9 @@ export async function parseLinkedinEnrichment(
   const { data: org } = await supabase.from('organisations').select('ai_analysis_model').limit(1).single();
   const analysisModel = org?.ai_analysis_model || 'gpt-4o-mini';
 
-  const { data, error } = await supabase.functions.invoke('parse-linkedin-enrichment', {
-    body: { contactName, linkedinProfileText, companyPageText, firstDegreeText, secondDegreeText, analysisModel },
+  return invokeEdgeFunction<ParsedEnrichment>('parse-linkedin-enrichment', {
+    contactName, linkedinProfileText, companyPageText, firstDegreeText, secondDegreeText, analysisModel,
   });
-  if (error) throw new Error(`Enrichment parsing failed: ${error.message}`);
-  return data as ParsedEnrichment;
 }
 
 // Fetch all background data for the contact profile panel — employment
