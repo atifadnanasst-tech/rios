@@ -21,6 +21,7 @@ interface RIOSState {
   selectWorkItem: (id: string | null) => void;
   toggleSelectWorkItemForBulk: (id: string) => void;
   selectAllWorkItems: (checked: boolean) => void;
+  setSelectedWorkItemIds: (ids: string[]) => void;
   clearBulkSelection: () => void;
   setQueueTab: (tab: 'work-queue' | 'all' | 'starred' | 'commitments' | 'completed' | 'archived' | 'snoozed') => void;
   setCategoryFilter: (category: 'all' | RelationshipCategory) => void;
@@ -146,6 +147,17 @@ export const useStore = create<RIOSState>((set, get) => ({
     } else {
       set({ selectedWorkItemIds: [] });
     }
+  },
+
+  // Direct setter — bypasses getFilteredWorkItems entirely. Needed because
+  // that function only ever knows about store.workItems/completedToday; it
+  // has no way to reason about allContactsItems/archivedItems/snoozedItems,
+  // which live as local React state in App.tsx, not in this store. Used
+  // for correctly implementing "Select All" on those tabs, and for
+  // "select all N matching a filter" (App.tsx resolves the actual list of
+  // ids first, then hands them straight here).
+  setSelectedWorkItemIds: (ids) => {
+    set({ selectedWorkItemIds: ids });
   },
 
   clearBulkSelection: () => {

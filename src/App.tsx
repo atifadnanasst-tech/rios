@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { RelationshipSearchResult } from './lib/domain/search';
+import { RELATIONSHIP_STAGES, ICP_TIERS, OUTREACH_STATUSES } from './lib/domain/constants';
 import {
   SlidersHorizontal,
   ChevronDown,
@@ -96,6 +97,48 @@ export default function App() {
   const isAllContactsTab = store.activeQueueTab === 'all';
   const isArchivedTab = store.activeQueueTab === 'archived';
   const isSnoozedTab = store.activeQueueTab === 'snoozed';
+
+  // All Contacts filters — narrows the server-side query, used both for
+  // browsing a page at a time and for "select all N matching" below.
+  const [filterCompany, setFilterCompany] = useState('');
+  const [filterStage, setFilterStage] = useState('');
+  const [filterCountry, setFilterCountry] = useState('');
+  const [filterIcpTier, setFilterIcpTier] = useState('');
+  const [filterOutreachStatus, setFilterOutreachStatus] = useState('');
+  const [showAllContactsFilters, setShowAllContactsFilters] = useState(false);
+  const [selectingAllMatching, setSelectingAllMatching] = useState(false);
+
+  const activeAllContactsFilters = {
+    company: filterCompany.trim() || undefined,
+    stage: filterStage || undefined,
+    country: filterCountry.trim() || undefined,
+    icpTier: filterIcpTier || undefined,
+    outreachStatus: filterOutreachStatus || undefined,
+  };
+  const hasActiveAllContactsFilters = Object.values(activeAllContactsFilters).some(Boolean);
+
+  function clearAllContactsFilters() {
+    setFilterCompany('');
+    setFilterStage('');
+    setFilterCountry('');
+    setFilterIcpTier('');
+    setFilterOutreachStatus('');
+  }
+
+  // Sort — only meaningful for the Daily Work Queue family of tabs
+  // (work-queue/starred/commitments/completed), which share the same
+  // client-side filteredWorkItems list. All Contacts has its own
+  // server-side sort already (icp_score/name/last_touch); Archived and
+  // Snoozed have their own fixed, purpose-specific ordering.
+  const [sortField, setSortField] = useState<'priority' | 'alphabetical' | 'stage' | 'icpScore' | 'country'>('priority');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const SORT_OPTIONS: { value: typeof sortField; label: string }[] = [
+    { value: 'priority', label: 'Priority & Next Action' },
+    { value: 'alphabetical', label: 'Alphabetical' },
+    { value: 'stage', label: 'Stage (high to low)' },
+    { value: 'icpScore', label: 'ICP Score' },
+    { value: 'country', label: 'Country' },
+  ];
 
   // Real KPI metrics — queried once on mount
   const [advanceCount, setAdvanceCount] = useState<number | null>(null);
@@ -260,6 +303,25 @@ export default function App() {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [showPerPageMenu, setShowPerPageMenu] = useState(false);
 
+  // Sort — client-side, only applies to the Daily Queue family of tabs.
+  // 'priority' keeps the existing order (already prioritized upstream);
+  // everything else is a plain client-side re-sort of what's already
+  // loaded, since these tabs never fetch more than what's already here.
+  const sortedWorkItems = React.useMemo(() => {
+    if (sortField === 'priority') return filteredWorkItems;
+    const items = [...filteredWorkItems];
+    if (sortField === 'alphabetical') {
+      items.sort((a, b) => a.relationship.name.localeCompare(b.relationship.name));
+    } else if (sortField === 'stage') {
+      items.sort((a, b) => RELATIONSHIP_STAGES.indexOf(b.relationship.currentStage) - RELATIONSHIP_STAGES.indexOf(a.relationship.currentStage));
+    } else if (sortField === 'icpScore') {
+      items.sort((a, b) => b.relationship.score - a.relationship.score);
+    } else if (sortField === 'country') {
+      items.sort((a, b) => a.relationship.location.localeCompare(b.relationship.location));
+    }
+    return items;
+  }, [filteredWorkItems, sortField]);
+
   const activePage = isAllContactsTab ? allContactsPage : isArchivedTab ? archivedPage : isSnoozedTab ? snoozedPage : currentPage;
   const setActivePage = isAllContactsTab
     ? (p: number) => setAllContactsPage(p)
@@ -280,17 +342,17 @@ export default function App() {
     ? archivedItems
     : isSnoozedTab
     ? snoozedItems
-    : filteredWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
+    : sortedWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
   // Load All Contacts from server when that tab is active
   useEffect(() => {
     if (!isAllContactsTab) return;
     import('./lib/domain/relationships').then(({ fetchAllRelationshipsPaginated }) =>
-      fetchAllRelationshipsPaginated(allContactsPage, itemsPerPage)
+      fetchAllRelationshipsPaginated(allContactsPage, itemsPerPage, 'icp_score', activeAllContactsFilters)
         .then(({ items, total }) => { setAllContactsItems(items); setAllContactsTotal(total); })
         .catch(console.error)
     );
-  }, [isAllContactsTab, allContactsPage, itemsPerPage]);
+  }, [isAllContactsTab, allContactsPage, itemsPerPage, filterCompany, filterStage, filterCountry, filterIcpTier, filterOutreachStatus]);
 
   // Load Archived contacts from server when that tab is active — same
   // pattern as All Contacts above.
@@ -323,7 +385,7 @@ export default function App() {
     setAllContactsPage(1);
     setArchivedPage(1);
     setSnoozedPage(1);
-  }, [store.activeQueueTab, store.activeCategoryFilter, store.searchQuery]);
+  }, [store.activeQueueTab, store.activeCategoryFilter, store.searchQuery, filterCompany, filterStage, filterCountry, filterIcpTier, filterOutreachStatus]);
 
   // If exactly one relationship is currently active in the Advisor panel,
   // both hotkeys and the sidebar shortcuts skip straight past search and
@@ -376,10 +438,37 @@ export default function App() {
   };
 
   // Select all checkbox handler
-  const isAllChecked = filteredWorkItems.length > 0 && filteredWorkItems.every(item => store.selectedWorkItemIds.includes(item.id));
+  // Fix: this used to always check against filteredWorkItems, which only
+  // ever reflects the Daily Work Queue's data — meaning "Select All" was
+  // silently checking the wrong contacts whenever you were on All
+  // Contacts, Archived, or Snoozed (same root-cause family as an earlier
+  // bulk-action bug). Now it uses whichever list is actually on screen.
+  const currentTabItems = isAllContactsTab ? allContactsItems : isArchivedTab ? archivedItems : isSnoozedTab ? snoozedItems : filteredWorkItems;
+  const isAllChecked = currentTabItems.length > 0 && currentTabItems.every(item => store.selectedWorkItemIds.includes(item.id));
   const handleSelectAllChange = () => {
-    store.selectAllWorkItems(!isAllChecked);
+    store.setSelectedWorkItemIds(isAllChecked ? [] : currentTabItems.map(item => item.id));
   };
+
+  // "Select all N matching" — different from the checkbox above, which
+  // only ever selects what's currently loaded on this one page. This
+  // reaches across the full filtered result set (e.g. all 247 contacts
+  // at a company, not just the 10 shown on this page), so a bulk action
+  // afterward (Archive/Snooze/etc.) can act on everyone who matches.
+  async function handleSelectAllMatching() {
+    setSelectingAllMatching(true);
+    try {
+      const { fetchAllMatchingRelationshipIds } = await import('./lib/domain/relationships');
+      const { ids, total, capped } = await fetchAllMatchingRelationshipIds(activeAllContactsFilters);
+      store.setSelectedWorkItemIds(ids);
+      if (capped) {
+        alert(`Selected the first ${ids.length} of ${total} matching contacts — narrow your filters to select everyone, since ${total} is above the safety cap for one selection.`);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to select matching contacts');
+    } finally {
+      setSelectingAllMatching(false);
+    }
+  }
 
   // New relationship creator submission
   const handleCreateRelationship = (e: React.FormEvent) => {
@@ -581,11 +670,62 @@ export default function App() {
 
             {/* QUEUE CONTROLS HEADER BAR */}
             <div className="flex items-center justify-between py-2 border-b border-white/[0.03] select-none">
-              {/* Sort selector */}
-              <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors">
-                <span>Sort: Priority & Next Action</span>
-                <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
-              </button>
+              {/* Sort selector — Daily Queue family of tabs only */}
+              {!isAllContactsTab && !isArchivedTab && !isSnoozedTab ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowSortDropdown(!showSortDropdown)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
+                  >
+                    <span>Sort: {SORT_OPTIONS.find((o) => o.value === sortField)?.label}</span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-zinc-500 transition-transform ${showSortDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence>
+                    {showSortDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.12 }}
+                        className="absolute left-0 top-full mt-1 w-56 bg-zinc-900 border border-white/10 rounded-xl py-1.5 shadow-2xl z-50"
+                      >
+                        {SORT_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => { setSortField(opt.value); setShowSortDropdown(false); }}
+                            className={`w-full flex items-center px-3.5 py-2 text-left text-xs font-medium transition-colors ${
+                              sortField === opt.value ? 'text-rios-purple' : 'text-zinc-300 hover:text-white hover:bg-white/5'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              ) : isAllContactsTab ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowAllContactsFilters(!showAllContactsFilters)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                      hasActiveAllContactsFilters
+                        ? 'bg-rios-purple/15 border-rios-purple/30 text-rios-purple'
+                        : 'bg-zinc-900 border-white/5 text-zinc-300 hover:text-white hover:bg-zinc-800'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span>Filters{hasActiveAllContactsFilters ? ' (active)' : ''}</span>
+                  </button>
+                  {hasActiveAllContactsFilters && (
+                    <button onClick={clearAllContactsFilters} className="text-[10px] text-zinc-500 hover:text-white transition-colors">
+                      Clear
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div />
+              )}
 
               {/* Check All Actions Bar */}
               <div className="flex items-center gap-4">
@@ -599,19 +739,61 @@ export default function App() {
                   <span>Select All</span>
                 </label>
 
-                <button
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/5 text-xs font-semibold text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors"
-                  onClick={() => store.selectedWorkItemIds.length > 0 ? alert('Open bulk action details') : alert('Please select cards first.')}
-                >
-                  <Inbox className="w-3.5 h-3.5" />
-                  <span>Bulk Actions</span>
-                </button>
-
-                <button className="p-2 rounded-lg bg-zinc-900 border border-white/5 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
-                  <SlidersHorizontal className="w-3.5 h-3.5" />
-                </button>
+                {isAllContactsTab && (
+                  <button
+                    onClick={handleSelectAllMatching}
+                    disabled={selectingAllMatching || allContactsTotal === 0}
+                    className="text-xs font-semibold text-rios-purple hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    {selectingAllMatching ? 'Selecting…' : `Select all ${allContactsTotal} matching`}
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* ALL CONTACTS FILTER ROW */}
+            {isAllContactsTab && showAllContactsFilters && (
+              <div className="flex flex-wrap items-center gap-2 py-3 border-b border-white/[0.03]">
+                <input
+                  type="text"
+                  placeholder="Company contains..."
+                  value={filterCompany}
+                  onChange={(e) => setFilterCompany(e.target.value)}
+                  className="h-8 px-2.5 bg-zinc-900 border border-white/10 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rios-purple/40 transition-all w-44"
+                />
+                <input
+                  type="text"
+                  placeholder="Country..."
+                  value={filterCountry}
+                  onChange={(e) => setFilterCountry(e.target.value)}
+                  className="h-8 px-2.5 bg-zinc-900 border border-white/10 rounded-lg text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rios-purple/40 transition-all w-32"
+                />
+                <select
+                  value={filterStage}
+                  onChange={(e) => setFilterStage(e.target.value)}
+                  className="h-8 px-2 bg-zinc-900 border border-white/10 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-rios-purple/40 transition-all"
+                >
+                  <option value="">All Stages</option>
+                  {RELATIONSHIP_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select
+                  value={filterIcpTier}
+                  onChange={(e) => setFilterIcpTier(e.target.value)}
+                  className="h-8 px-2 bg-zinc-900 border border-white/10 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-rios-purple/40 transition-all"
+                >
+                  <option value="">All Tiers</option>
+                  {ICP_TIERS.map((t) => <option key={t} value={t}>{t.replace('_', ' ')}</option>)}
+                </select>
+                <select
+                  value={filterOutreachStatus}
+                  onChange={(e) => setFilterOutreachStatus(e.target.value)}
+                  className="h-8 px-2 bg-zinc-900 border border-white/10 rounded-lg text-xs text-zinc-200 focus:outline-none focus:border-rios-purple/40 transition-all"
+                >
+                  <option value="">All Statuses</option>
+                  {OUTREACH_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                </select>
+              </div>
+            )}
 
             {/* ACTIVE LIST OF MISSION CARDS */}
             <div className="flex flex-col gap-3 relative">

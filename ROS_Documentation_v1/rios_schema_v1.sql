@@ -868,3 +868,12 @@ alter type event_type add value if not exists 'resurfaced';
 -- ============================================================
 
 -- ============================================================
+-- NEXT BEST ACTION DRAFT — added 2026-07-14
+-- Sendable companion to next_best_action. Nullable — not every action
+-- is "send a message" (e.g. "Do not contact" has no draft). Mirrors the
+-- prose/reply split already used by reply-assistant and advisor-chat.
+-- ============================================================
+alter table relationships
+  add column next_best_action_draft text;
+  
+-- ============================================================

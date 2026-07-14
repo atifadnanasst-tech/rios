@@ -23,27 +23,105 @@ function normalizeRow(row: RawRow): RelationshipRow {
 
 // Real server-side paginated browse of ALL contacts — not filtered by
 // daily work logic. Used by the "All Contacts" tab.
+export type RelationshipFilters = {
+  company?: string;
+  stage?: string;
+  country?: string;
+  icpTier?: string;
+  outreachStatus?: string;
+};
+
+// Applies the shared filter set to a Supabase query builder — used by both
+// the paginated browse below and fetchAllMatchingRelationshipIds, so the
+// two can never silently drift out of sync (the same filters must always
+// mean the same matched set, whether you're looking at a page of them or
+// selecting all of them for a bulk action).
+function applyRelationshipFilters(query: any, filters?: RelationshipFilters) {
+  if (!filters) return query;
+  if (filters.company) query = query.ilike('company', `%${filters.company}%`);
+  if (filters.stage) query = query.eq('stage', filters.stage);
+  if (filters.icpTier) query = query.eq('icp_tier', filters.icpTier);
+  if (filters.outreachStatus) query = query.eq('outreach_status', filters.outreachStatus);
+  if (filters.country) query = query.eq('contacts.country', filters.country);
+  return query;
+}
+
 export async function fetchAllRelationshipsPaginated(
   page: number,
   pageSize: number,
-  sortBy: 'icp_score' | 'name' | 'last_touch' = 'icp_score'
+  sortBy: 'icp_score' | 'name' | 'last_touch' = 'icp_score',
+  filters?: RelationshipFilters
 ): Promise<{ items: WorkItem[]; total: number }> {
   const offset = (page - 1) * pageSize;
 
-  const sortColumn = sortBy === 'name' ? 'contacts(first_name)' : sortBy === 'last_touch' ? 'last_outreach_date' : 'icp_score';
+  // Filtering on contacts.country requires an inner join hint for
+  // PostgREST to actually use it as a filter rather than silently
+  // ignoring it — only switched on when a country filter is present,
+  // since inner-joining always would exclude any relationship whose
+  // contact row is somehow missing (shouldn't happen, but no reason to
+  // risk it when no country filter was even requested).
+  const selectString = filters?.country
+    ? RELATIONSHIP_SELECT.replace('contacts (', 'contacts!inner (')
+    : RELATIONSHIP_SELECT;
 
-  const { data, error, count } = await supabase
+  let query = supabase
     .from('relationships')
-    .select(RELATIONSHIP_SELECT, { count: 'exact' })
+    .select(selectString, { count: 'exact' })
     .neq('outreach_status', 'opted_out')
     .neq('outreach_status', 'do_not_contact')
-    .is('archived_at', null)
-    .order('icp_score', { ascending: false })
-    .range(offset, offset + pageSize - 1);
+    .is('archived_at', null);
+
+  query = applyRelationshipFilters(query, filters);
+
+  // Fixes a dormant bug: sortBy was accepted as a parameter and computed
+  // into a local sortColumn variable, but that variable was never actually
+  // passed to .order() — every call sorted by icp_score regardless of
+  // what was requested. Fixed 2026-07-14.
+  if (sortBy === 'name') {
+    query = query.order('first_name', { foreignTable: 'contacts', ascending: true });
+  } else if (sortBy === 'last_touch') {
+    query = query.order('last_outreach_date', { ascending: false, nullsFirst: false });
+  } else {
+    query = query.order('icp_score', { ascending: false });
+  }
+
+  const { data, error, count } = await query.range(offset, offset + pageSize - 1);
 
   if (error) throw new Error(`Failed to fetch all contacts: ${error.message}`);
   const items = ((data as unknown as RawRow[]) || []).map(normalizeRow).map(buildWorkItemFromRelationship);
   return { items, total: count || 0 };
+}
+
+// For "select all N matching" — returns just the ids (not full WorkItem
+// objects, no need for the heavier select) of everyone matching the given
+// filters, capped at a sane limit so one filter typo can't accidentally
+// try to select and act on the entire database in one click. `capped`
+// tells the UI to say "showing the first 2000 of N" rather than silently
+// acting on a partial set without saying so.
+export async function fetchAllMatchingRelationshipIds(
+  filters: RelationshipFilters,
+  cap = 2000
+): Promise<{ ids: string[]; total: number; capped: boolean }> {
+  const selectString = filters.country ? 'id, contacts!inner(country)' : 'id';
+
+  let query = supabase
+    .from('relationships')
+    .select(selectString, { count: 'exact' })
+    .neq('outreach_status', 'opted_out')
+    .neq('outreach_status', 'do_not_contact')
+    .is('archived_at', null);
+
+  query = applyRelationshipFilters(query, filters);
+
+  const { data, error, count } = await query.limit(cap);
+
+  if (error) throw new Error(`Failed to fetch matching contacts: ${error.message}`);
+  const total = count || 0;
+  return {
+    ids: ((data as any[]) || []).map((r) => r.id),
+    total,
+    capped: total > cap,
+  };
 }
 
 export async function fetchRelationshipRowById(relationshipId: string): Promise<RelationshipRow | null> {

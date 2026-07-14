@@ -49,6 +49,17 @@ export const USER_ROLES = ['owner', 'manager', 'user'] as const;
 
 export const CONTACT_CHANNELS = ['LinkedIn', 'Email', 'WhatsApp', 'Phone'] as const;
 
+export const OUTREACH_STATUSES = [
+  'nurture',
+  'contacted',
+  'engaged',
+  'not_interested',
+  'opted_out',
+  'do_not_contact',
+] as const;
+
+export const ICP_TIERS = ['Tier_A', 'Tier_B', 'Tier_C', 'Tier_D'] as const;
+
 export type RelationshipStage = (typeof RELATIONSHIP_STAGES)[number];
 export type RelationshipTemperature = (typeof RELATIONSHIP_TEMPERATURES)[number];
 export type WorkItemCategory = (typeof WORK_ITEM_CATEGORIES)[number];
@@ -56,3 +67,5 @@ export type RelationshipGoal = (typeof RELATIONSHIP_GOALS)[number];
 export type SubscriptionTier = (typeof SUBSCRIPTION_TIERS)[number];
 export type UserRole = (typeof USER_ROLES)[number];
 export type ContactChannel = (typeof CONTACT_CHANNELS)[number];
+export type OutreachStatus = (typeof OUTREACH_STATUSES)[number];
+export type IcpTier = (typeof ICP_TIERS)[number];
