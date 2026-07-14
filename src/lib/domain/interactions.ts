@@ -17,7 +17,16 @@ export type LogInteractionInput = {
 // This is exactly the kind of rule-based logic the Constitution says
 // belongs in code, not in an AI call — replace with real classification
 // later without changing where this function is called from.
-const DAYS_UNTIL_NEXT_TOUCH_AFTER_SENT = 14;
+//
+// Fixed 2026-07-14: a sent message used to always push the next touch out
+// by a flat 14 days, forever, regardless of how many times you'd already
+// followed up — never matching the documented escalating cadence
+// (7 → 15 → 21 → 30 → 45 days) and never advancing cadence_step, the
+// counter that schedule depends on. Now it actually reads and advances
+// cadence_step, so the gap between follow-ups genuinely lengthens the
+// longer someone goes without replying, same as the automated nightly
+// sweep already does for the same schedule.
+const CADENCE_SCHEDULE_DAYS = [7, 15, 21, 30, 45];
 const DAYS_UNTIL_NEXT_TOUCH_AFTER_RECEIVED = 3;
 
 function addDays(dateStr: string, days: number): string {
@@ -45,19 +54,23 @@ export async function logInteraction(input: LogInteractionInput): Promise<void> 
   // touch_number increment and temperature step-up.
   const { data: current, error: readError } = await supabase
     .from('relationships')
-    .select('touch_number, relationship_temperature, outreach_status')
+    .select('touch_number, relationship_temperature, outreach_status, cadence_step')
     .eq('id', relationshipId)
     .single();
   if (readError) throw new Error(`Failed to read relationship before update: ${readError.message}`);
 
   if (direction === 'Sent') {
+    const currentStep = current.cadence_step || 0;
+    const daysUntilNext = CADENCE_SCHEDULE_DAYS[Math.min(currentStep, CADENCE_SCHEDULE_DAYS.length - 1)];
+
     const { error } = await supabase
       .from('relationships')
       .update({
         last_outreach_date: messageDate,
         last_outreach_channel: channel,
         touch_number: (current.touch_number || 0) + 1,
-        next_touch_due: addDays(messageDate, DAYS_UNTIL_NEXT_TOUCH_AFTER_SENT),
+        cadence_step: currentStep + 1,
+        next_touch_due: addDays(messageDate, daysUntilNext),
       })
       .eq('id', relationshipId);
     if (error) throw new Error(`Failed to update relationship: ${error.message}`);
