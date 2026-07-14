@@ -17,7 +17,8 @@ import {
   Info,
   Calendar,
   X,
-  Clock
+  Clock,
+  Search
 } from 'lucide-react';
 import { useStore, getFilteredWorkItems } from './store/useStore.ts';
 import { Sidebar } from './components/layout/Sidebar.tsx';
@@ -97,6 +98,31 @@ export default function App() {
   const isAllContactsTab = store.activeQueueTab === 'all';
   const isArchivedTab = store.activeQueueTab === 'archived';
   const isSnoozedTab = store.activeQueueTab === 'snoozed';
+
+  // Pinned search result — when someone opens a contact via the header
+  // search, that contact might be buried deep in the current sort order
+  // (or on a different page entirely, or not in the currently-loaded list
+  // at all). Since searching for someone specifically is a clear signal
+  // of intent, pin them to the very top of whichever list is on screen
+  // right now, so bulk actions (checkbox, Archive, Snooze, etc.) work on
+  // them immediately without hunting through pages.
+  const [pinnedRelationshipId, setPinnedRelationshipId] = useState<string | null>(null);
+
+  // Clear the pin on a genuine tab switch — a pin only makes sense in the
+  // context you searched from.
+  React.useEffect(() => {
+    setPinnedRelationshipId(null);
+  }, [store.activeQueueTab]);
+
+  // Also clear it once the owner deliberately looks at a different card —
+  // the pin has served its purpose once attention has moved on.
+  React.useEffect(() => {
+    if (!pinnedRelationshipId || !store.selectedWorkItemId) return;
+    const selected = store.workItems.find((i) => i.id === store.selectedWorkItemId);
+    if (selected && selected.relationshipId !== pinnedRelationshipId) {
+      setPinnedRelationshipId(null);
+    }
+  }, [store.selectedWorkItemId]);
 
   // All Contacts filters — narrows the server-side query, used both for
   // browsing a page at a time and for "select all N matching" below.
@@ -344,6 +370,14 @@ export default function App() {
     ? snoozedItems
     : sortedWorkItems.slice((safePage - 1) * itemsPerPage, safePage * itemsPerPage);
 
+  // Prepend the pinned search result, if any, unless it's already
+  // naturally present in the current page (no point showing it twice).
+  const pinnedWorkItem = pinnedRelationshipId ? store.workItems.find((i) => i.relationshipId === pinnedRelationshipId) : null;
+  const displayedWorkItems =
+    pinnedWorkItem && !paginatedWorkItems.some((i) => i.relationshipId === pinnedRelationshipId)
+      ? [pinnedWorkItem, ...paginatedWorkItems]
+      : paginatedWorkItems;
+
   // Load All Contacts from server when that tab is active
   useEffect(() => {
     if (!isAllContactsTab) return;
@@ -570,7 +604,10 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         
         {/* UPPER HEADER */}
-        <Header onShowAIBriefing={() => setShowBriefing(true)} />
+        <Header
+          onShowAIBriefing={() => setShowBriefing(true)}
+          onOpenViaSearch={(relationshipId) => setPinnedRelationshipId(relationshipId)}
+        />
 
         {/* Settings screen — shown when settings nav is active */}
         {activeView === 'settings' && (
@@ -800,8 +837,8 @@ export default function App() {
             {/* ACTIVE LIST OF MISSION CARDS */}
             <div className="flex flex-col gap-3 relative">
               <AnimatePresence initial={false} mode="popLayout">
-                {paginatedWorkItems.length > 0 ? (
-                  paginatedWorkItems.map((item) => (
+                {displayedWorkItems.length > 0 ? (
+                  displayedWorkItems.map((item) => (
                     <motion.div
                       key={item.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -809,6 +846,19 @@ export default function App() {
                       exit={{ opacity: 0, x: -10 }}
                       transition={{ duration: 0.18 }}
                     >
+                      {item.relationshipId === pinnedRelationshipId && (
+                        <div className="flex items-center justify-between px-1 pb-1.5">
+                          <span className="text-[10px] font-semibold text-rios-purple flex items-center gap-1">
+                            <Search className="w-3 h-3" /> Found via search
+                          </span>
+                          <button
+                            onClick={() => setPinnedRelationshipId(null)}
+                            className="text-[10px] text-zinc-500 hover:text-white transition-colors"
+                          >
+                            Dismiss
+                          </button>
+                        </div>
+                      )}
                       <RelationshipMissionCard
                         item={item}
                         isSelected={store.selectedWorkItemId === item.id}

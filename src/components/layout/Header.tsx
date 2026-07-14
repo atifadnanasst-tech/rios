@@ -8,10 +8,11 @@ import { UserMenu } from '../ui/UserMenu.tsx';
 
 interface HeaderProps {
   onShowAIBriefing?: () => void;
+  onOpenViaSearch?: (relationshipId: string) => void;
   id?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ onShowAIBriefing, id }) => {
+export const Header: React.FC<HeaderProps> = ({ onShowAIBriefing, onOpenViaSearch, id }) => {
   const searchQuery = useStore((state) => state.searchQuery);
   const setSearchQuery = useStore((state) => state.setSearchQuery);
   const openRelationshipById = useStore((state) => state.openRelationshipById);
@@ -103,6 +104,7 @@ export const Header: React.FC<HeaderProps> = ({ onShowAIBriefing, id }) => {
     setShowResults(false);
     setSearchQuery('');
     await openRelationshipById(r.id);
+    onOpenViaSearch?.(r.id);
   }
 
   return (
