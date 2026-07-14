@@ -129,6 +129,21 @@ export function exportOutreachToXlsx(rows: OutreachRow[]): void {
     });
   }
 
+  // Fixed 2026-07-14: LinkedIn URLs were written as plain text — Excel only
+  // auto-detects a typed URL as a real hyperlink, not one written
+  // programmatically, so every cell needed a manual F2+Enter before it
+  // became clickable. Setting .l (the actual hyperlink object) on each
+  // cell makes it clickable the moment the file opens, no manual step
+  // needed. Styled blue+underlined to actually look like a hyperlink too,
+  // since a bare .l with no style still renders as plain black text.
+  for (let R = 1; R <= range.e.r; R++) {
+    const cell = ws[`F${R + 1}`];
+    if (cell && cell.v) {
+      cell.l = { Target: cell.v, Tooltip: 'Open LinkedIn profile' };
+      cell.s = { font: { color: { rgb: '0563C1' }, underline: true } };
+    }
+  }
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Outreach');
   const now = new Date();
