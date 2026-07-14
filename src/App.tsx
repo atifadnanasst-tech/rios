@@ -505,58 +505,44 @@ export default function App() {
   }
 
   // New relationship creator submission
-  const handleCreateRelationship = (e: React.FormEvent) => {
+  // Fixed 2026-07-14: this used to build a fake relationship with a
+  // client-generated id (`rel-${Date.now()}`) and only ever add it to
+  // local store state — nothing was ever actually saved to the database.
+  // Refreshing the page silently lost it. Now it actually persists.
+  const [creatingRelationship, setCreatingRelationship] = useState(false);
+  const [createRelationshipError, setCreateRelationshipError] = useState<string | null>(null);
+
+  const handleCreateRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newRelName || !newRelCompany) return;
 
-    const relId = `rel-${Date.now()}`;
-    const workId = `work-${Date.now()}`;
+    setCreatingRelationship(true);
+    setCreateRelationshipError(null);
+    try {
+      const { createContactAndRelationship } = await import('./lib/domain/relationships');
+      const nameParts = newRelName.trim().split(/\s+/);
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ') || null;
+      const dbChannel = newRelChannel === 'linkedin' ? 'LinkedIn' : newRelChannel === 'whatsapp' ? 'WhatsApp' : newRelChannel === 'phone' ? 'Phone' : 'Email';
 
-    const newRelationship: Relationship = {
-      id: relId,
-      name: newRelName,
-      avatar: '', // Fallback initials
-      company: newRelCompany,
-      position: '', // no dedicated input field in this form yet
-      suggestedStage: null,
-      isCommitted: false,
-      location: newRelLocation || 'Remote',
-      starred: false,
-      score: 60,
-      status: 'Stable',
-      commercialGoal: 'Introduction Alignment',
-      currentStage: newRelStage,
-      suggestedChannel: newRelChannel,
-      nextBestAction: `Reach out via ${newRelChannel} and introduce product capabilities.`,
-      aiConfidence: 80,
-      tags: ['New Account'],
-      whyToday: `${newRelName} was recently added to RIOS. Perfect timing to establish a professional line of communication.`,
-      excludedUntil: null,
-      nextBestActionDraft: null,
-      nextTouchDue: null
-    };
+      const result = await createContactAndRelationship(firstName, lastName, newRelCompany, newRelLocation || null, newRelStage, dbChannel);
+      if (!result) {
+        setCreateRelationshipError('Failed to create this contact — please try again.');
+        return;
+      }
 
-    const newWorkItem = {
-      id: workId,
-      relationshipId: relId,
-      relationship: newRelationship,
-      category: newRelCategory,
-      description: `Initiate communication on ${newRelCategory} objective`,
-      priority: newRelPriority,
-      dueTime: '04:30 PM',
-      channel: newRelChannel,
-      completed: false,
-      starred: false
-    };
+      await store.openRelationshipById(result.relationshipId);
 
-    store.addRelationship(newRelationship);
-    store.addWorkItem(newWorkItem);
-
-    // Reset fields
-    setNewRelName('');
-    setNewRelCompany('');
-    setNewRelLocation('');
-    setShowAddModal(false);
+      // Reset fields
+      setNewRelName('');
+      setNewRelCompany('');
+      setNewRelLocation('');
+      setShowAddModal(false);
+    } catch (err) {
+      setCreateRelationshipError(err instanceof Error ? err.message : 'Failed to create this contact.');
+    } finally {
+      setCreatingRelationship(false);
+    }
   };
 
   if (store.isLoading) {
@@ -1268,6 +1254,10 @@ export default function App() {
                   </div>
                 </div>
 
+                {createRelationshipError && (
+                  <div className="text-[11px] text-red-400">{createRelationshipError}</div>
+                )}
+
                 <div className="pt-4 border-t border-white/5 flex justify-end gap-3">
                   <button
                     type="button"
@@ -1278,9 +1268,10 @@ export default function App() {
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 rounded-lg bg-rios-purple hover:bg-opacity-90 text-xs font-bold text-white transition-colors cursor-pointer shadow-[0_4px_12px_rgba(124,58,237,0.3)]"
+                    disabled={creatingRelationship}
+                    className="px-4 py-2 rounded-lg bg-rios-purple hover:bg-opacity-90 text-xs font-bold text-white transition-colors cursor-pointer shadow-[0_4px_12px_rgba(124,58,237,0.3)] disabled:opacity-50"
                   >
-                    Add Relationship
+                    {creatingRelationship ? 'Adding…' : 'Add Relationship'}
                   </button>
                 </div>
               </form>

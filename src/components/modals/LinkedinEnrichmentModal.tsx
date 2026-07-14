@@ -52,6 +52,13 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
 
+  // "Not found — add them?" fallback, since search only ever finds people
+  // already in RIOS. Lets enrichment handle a brand-new contact instead
+  // of being a dead end.
+  const [showCreateNew, setShowCreateNew] = useState(false);
+  const [newContactCompany, setNewContactCompany] = useState('');
+  const [creatingNewContact, setCreatingNewContact] = useState(false);
+
   useEffect(() => {
     if (!isOpen) return;
     function handleKeyDown(e: KeyboardEvent) {
@@ -109,7 +116,49 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
     setParsed(null);
     setCompanyDecisions([]);
     setError(null);
+    setShowCreateNew(false);
+    setNewContactCompany('');
     onClose();
+  }
+
+  // Creates a brand-new contact right here, then proceeds into the exact
+  // same paste/parse/preview flow as if they'd been found via search —
+  // enriching someone who didn't exist in RIOS yet, in one motion.
+  async function handleCreateNewContact() {
+    const trimmedName = query.trim();
+    if (!trimmedName) return;
+    setCreatingNewContact(true);
+    setError(null);
+    try {
+      const { createContactAndRelationship } = await import('../../lib/domain/relationships');
+      const nameParts = trimmedName.split(/\s+/);
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ') || null;
+
+      const result = await createContactAndRelationship(firstName, lastName, newContactCompany.trim() || null, null);
+      if (!result) {
+        setError('Failed to create this contact — please try again.');
+        return;
+      }
+
+      const newSelected: RelationshipSearchResult = {
+        id: result.relationshipId,
+        contactId: result.contactId,
+        name: trimmedName,
+        company: newContactCompany.trim() || null,
+        position: null,
+        lastChannel: null,
+        isArchived: false,
+        isSnoozed: false,
+      };
+      setSelected(newSelected);
+      setShowResults(false);
+      setShowCreateNew(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create this contact.');
+    } finally {
+      setCreatingNewContact(false);
+    }
   }
 
   async function handleParse() {
@@ -260,6 +309,39 @@ export const LinkedinEnrichmentModal: React.FC<LinkedinEnrichmentModalProps> = (
                               <div className="text-[10px] text-zinc-400">{r.company}</div>
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {showResults && !searching && query.trim().length >= 2 && results.length === 0 && !selected && (
+                        <div className="absolute z-10 mt-1 w-full bg-zinc-900 border border-white/10 rounded-lg shadow-xl p-3 space-y-2">
+                          {!showCreateNew ? (
+                            <button
+                              onClick={() => setShowCreateNew(true)}
+                              className="w-full text-left text-xs text-rios-purple hover:text-white transition-colors"
+                            >
+                              + Add "{query.trim()}" as a new contact
+                            </button>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="text-[10px] text-zinc-500">
+                                Creating <span className="text-zinc-300 font-medium">{query.trim()}</span> as a new contact
+                              </div>
+                              <input
+                                type="text"
+                                value={newContactCompany}
+                                onChange={(e) => setNewContactCompany(e.target.value)}
+                                placeholder="Company (optional)"
+                                autoFocus
+                                className="w-full h-8 px-2 bg-zinc-950 border border-white/10 rounded text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-rios-purple/40"
+                              />
+                              <button
+                                onClick={handleCreateNewContact}
+                                disabled={creatingNewContact}
+                                className="w-full h-8 rounded-lg bg-rios-purple text-white text-xs font-semibold hover:bg-opacity-90 transition-all disabled:opacity-50"
+                              >
+                                {creatingNewContact ? 'Creating…' : `Create & Continue`}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

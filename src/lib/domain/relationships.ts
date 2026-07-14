@@ -394,6 +394,78 @@ export async function findOrCreateRelationshipForContact(
   return created.id;
 }
 
+// Creates a genuinely NEW contact + relationship from scratch — not to be
+// confused with findOrCreateRelationshipForContact above, which assumes
+// the contact already exists (e.g. surfaced via LinkedIn mutual-connection
+// enrichment) and just needs a relationship record. This one is for a
+// person who doesn't exist in RIOS at all yet. Used by both the "Add
+// Relationship" sidebar form (which, before this, only ever built a fake
+// client-side-only object that vanished on refresh — never actually
+// saved) and Enrich Contact's new "not found — add them?" fallback.
+export async function createContactAndRelationship(
+  firstName: string,
+  lastName: string | null,
+  companyName: string | null,
+  location: string | null,
+  stage: string = 'Discovered',
+  channel: string | null = null
+): Promise<{ relationshipId: string; contactId: string } | null> {
+  const { data: contact, error: contactError } = await supabase
+    .from('contacts')
+    .insert({
+      first_name: firstName.trim(),
+      last_name: lastName?.trim() || null,
+      country: location?.trim() || null,
+    })
+    .select('id')
+    .single();
+  if (contactError || !contact) {
+    console.error('Failed to create contact:', contactError?.message);
+    return null;
+  }
+
+  const { data: anyRel } = await supabase.from('relationships').select('organisation_id').limit(1).single();
+  const orgId = anyRel?.organisation_id;
+  if (!orgId) {
+    console.error('Could not resolve organisation_id for new relationship');
+    return null;
+  }
+
+  // Reuse the same find-or-create pattern already used elsewhere, so a
+  // company typed here matches one already in the system instead of
+  // creating a duplicate.
+  let companyId: string | null = null;
+  if (companyName?.trim()) {
+    const { findOrCreateCompany } = await import('./companies');
+    const company = await findOrCreateCompany(companyName.trim());
+    companyId = company.id;
+  }
+
+  const { data: relationship, error: relError } = await supabase
+    .from('relationships')
+    .insert({
+      contact_id: contact.id,
+      organisation_id: orgId,
+      company: companyName?.trim() || null,
+      company_id: companyId,
+      stage,
+      relationship_temperature: 'Cold',
+      outreach_status: 'nurture',
+      goal: 'Commercial Discovery',
+      icp_score: 0,
+      touch_number: 0,
+      last_outreach_channel: channel,
+    })
+    .select('id')
+    .single();
+  if (relError || !relationship) {
+    console.error('Failed to create relationship:', relError?.message);
+    return null;
+  }
+
+  return { relationshipId: relationship.id, contactId: contact.id };
+}
+
 // ============================================================
 // ARCHIVE FEATURE
 // ============================================================
