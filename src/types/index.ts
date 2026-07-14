@@ -44,6 +44,8 @@ export interface Relationship {
   tags: string[];
   whyToday: string;
   excludedUntil: string | null; // set while snoozed; the date they resurface
+  nextBestActionDraft: string | null; // sendable companion to nextBestAction, when the action is genuinely "send a message"
+  nextTouchDue: string | null; // raw ISO date (YYYY-MM-DD) — editing this directly controls Daily Work Queue resurfacing
 }
 
 export interface WorkItem {

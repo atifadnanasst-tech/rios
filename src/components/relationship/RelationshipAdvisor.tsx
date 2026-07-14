@@ -196,6 +196,16 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
   const [isGettingReply, setIsGettingReply] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
 
+  // Next Best Action — both the prose and the date are directly editable.
+  // Editing the date is genuinely simple: next_touch_due is the same field
+  // the Daily Work Queue already reads to decide who resurfaces and when,
+  // so editing it here has no separate mechanism to build — it just IS
+  // the real schedule.
+  const [editingNextAction, setEditingNextAction] = useState(false);
+  const [nextActionDraft, setNextActionDraft] = useState('');
+  const [editingNextDate, setEditingNextDate] = useState(false);
+  const [nextDateDraft, setNextDateDraft] = useState('');
+
   // Advisor Chat — the real, persistent multi-turn conversation. 'quick'
   // is today's existing single-shot flow above, completely unchanged.
   const [advisorMode, setAdvisorMode] = useState<'quick' | 'chat'>('quick');
@@ -263,6 +273,8 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       setChatMessages([]);
       setChatInput('');
       setChatError(null);
+      setEditingNextAction(false);
+      setEditingNextDate(false);
     }
   }, [item?.relationship.id]);
 
@@ -402,6 +414,39 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
       setChatError(err instanceof Error ? err.message : 'Failed to get a response');
     } finally {
       setSendingChat(false);
+    }
+  }
+
+  // Quiet-save, same pattern as history entry edits — no popup, just
+  // saves in the background when the field loses focus.
+  async function handleSaveNextAction() {
+    setEditingNextAction(false);
+    if (!item) return;
+    const trimmed = nextActionDraft.trim();
+    if (trimmed === (item.relationship.nextBestAction || '')) return;
+    try {
+      const { updateNextBestAction } = await import('../../lib/domain/relationships');
+      await updateNextBestAction(item.relationship.id, { nextBestAction: trimmed });
+      onRecomputed?.(item.relationship.id);
+    } catch (err) {
+      console.error('Failed to save next best action:', err);
+    }
+  }
+
+  // Editing this date directly changes when this contact resurfaces in
+  // the Daily Work Queue — next_touch_due is the exact field that queue
+  // already reads, so there's no separate mechanism here, just a direct
+  // edit of the real schedule.
+  async function handleSaveNextDate() {
+    setEditingNextDate(false);
+    if (!item) return;
+    if (nextDateDraft === (item.relationship.nextTouchDue || '')) return;
+    try {
+      const { updateNextBestAction } = await import('../../lib/domain/relationships');
+      await updateNextBestAction(item.relationship.id, { nextTouchDue: nextDateDraft || null });
+      onRecomputed?.(item.relationship.id);
+    } catch (err) {
+      console.error('Failed to save next touch date:', err);
     }
   }
 
@@ -899,12 +944,59 @@ export const RelationshipAdvisor: React.FC<RelationshipAdvisorProps> = ({
 
         {/* NEXT BEST ACTION */}
         <div className="space-y-1.5">
-          <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-rios-text-muted block">
-            Next Best Action
-          </span>
-          <p className="text-sm text-white font-semibold leading-normal bg-zinc-900/50 p-3 rounded-xl border border-white/5">
-            {rel.nextBestAction}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-rios-text-muted">
+              Next Best Action
+            </span>
+            {editingNextDate ? (
+              <input
+                type="date"
+                value={nextDateDraft}
+                autoFocus
+                onChange={(e) => setNextDateDraft(e.target.value)}
+                onBlur={handleSaveNextDate}
+                className="h-5 px-1.5 bg-zinc-900 border border-rios-purple/40 rounded text-[10px] text-white focus:outline-none"
+              />
+            ) : (
+              <button
+                onClick={() => { setNextDateDraft(rel.nextTouchDue || ''); setEditingNextDate(true); }}
+                className="text-[10px] font-mono font-semibold text-zinc-500 hover:text-rios-purple transition-colors shrink-0"
+                title="Click to change the date"
+              >
+                {rel.nextTouchDue
+                  ? new Date(rel.nextTouchDue).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : 'Set date'}
+              </button>
+            )}
+          </div>
+
+          {editingNextAction ? (
+            <textarea
+              value={nextActionDraft}
+              autoFocus
+              rows={3}
+              onChange={(e) => setNextActionDraft(e.target.value)}
+              onBlur={handleSaveNextAction}
+              className="w-full text-sm text-white font-semibold leading-normal bg-zinc-900/50 p-3 rounded-xl border border-rios-purple/40 focus:outline-none resize-y"
+            />
+          ) : (
+            <p
+              onClick={() => { setNextActionDraft(rel.nextBestAction || ''); setEditingNextAction(true); }}
+              className="text-sm text-white font-semibold leading-normal bg-zinc-900/50 p-3 rounded-xl border border-white/5 cursor-text hover:border-white/15 transition-colors"
+              title="Click to edit"
+            >
+              {rel.nextBestAction}
+            </p>
+          )}
+
+          {rel.nextBestActionDraft && (
+            <Composer
+              initialValue={rel.nextBestActionDraft}
+              isGenerating={false}
+              defaultChannel={currentChannel || undefined}
+              onSend={(text, channel) => handleSendMessage(text, channel)}
+            />
+          )}
         </div>
 
         {/* AI CONFIDENCE */}

@@ -33,6 +33,7 @@ export type RelationshipRow = {
   is_committed: boolean;
   suggested_stage: string | null;
   excluded_until: string | null;
+  next_best_action_draft: string | null;
   contacts: {
     first_name: string;
     last_name: string | null;
@@ -97,6 +98,8 @@ export function mapRowToRelationship(row: RelationshipRow): Relationship {
     tags: [row.persona, row.company_type, row.icp_tier].filter(Boolean) as string[],
     whyToday: buildWhyToday(row),
     nextBestAction: row.next_best_action || 'No specific action recommended yet.',
+    nextBestActionDraft: row.next_best_action_draft,
+    nextTouchDue: row.next_touch_due,
     aiConfidence: row.classification_confidence ? CONFIDENCE_TO_PERCENT[row.classification_confidence] : 50,
     suggestedChannel: mapDbChannelToFrontend(row.last_outreach_channel),
     excludedUntil: row.excluded_until,

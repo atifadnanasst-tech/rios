@@ -66,7 +66,7 @@ export const useStore = create<RIOSState>((set, get) => ({
       // Using last_outreach_date = today — persists in DB, no reconstruction needed
       const { data: touchedToday } = await supabase
         .from('relationships')
-        .select('id, company, position, relationship_temperature, next_best_action, stage, icp_score, icp_tier, touch_number, starred, is_committed, suggested_stage, outreach_status, next_touch_due, last_outreach_channel, contacts(first_name, last_name, country)')
+        .select('id, company, position, relationship_temperature, next_best_action, next_best_action_draft, stage, icp_score, icp_tier, touch_number, starred, is_committed, suggested_stage, outreach_status, next_touch_due, last_outreach_channel, contacts(first_name, last_name, country)')
         .eq('last_outreach_date', today)
         .is('archived_at', null)
         .order('icp_score', { ascending: false });
@@ -97,6 +97,8 @@ export const useStore = create<RIOSState>((set, get) => ({
             tags: [],
             whyToday: 'Outreached today',
             excludedUntil: null,
+            nextBestActionDraft: r.next_best_action_draft || null,
+            nextTouchDue: r.next_touch_due || null,
           },
           category: 'building' as const,
           description: 'Outreached today — follow up in 7 days',

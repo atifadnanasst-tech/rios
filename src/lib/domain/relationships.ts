@@ -5,7 +5,7 @@ import type { Relationship, WorkItem } from '../../types';
 
 const RELATIONSHIP_SELECT = `
   id, company, position, goal, stage, icp_score, icp_tier,
-  relationship_temperature, next_best_action, last_outreach_channel,
+  relationship_temperature, next_best_action, next_best_action_draft, last_outreach_channel,
   classification_confidence, persona, company_type, next_touch_due,
   outreach_status, touch_number, starred, suggested_stage, is_committed,
   excluded_until,
@@ -319,6 +319,24 @@ export async function updateRelationshipStage(
     source: 'manual',
   });
   if (eventError) console.error('Failed to log stage-change event:', eventError.message);
+}
+
+// Lets the owner directly edit what the AI suggested — both the prose
+// ("what to do") and the date (which directly controls when this contact
+// resurfaces in the Daily Work Queue, since next_touch_due is the same
+// field the queue itself reads). No popup/confirmation needed; this is
+// meant to feel as lightweight as editing a history entry.
+export async function updateNextBestAction(
+  relationshipId: string,
+  updates: { nextBestAction?: string; nextTouchDue?: string | null }
+): Promise<void> {
+  const payload: Record<string, any> = {};
+  if (updates.nextBestAction !== undefined) payload.next_best_action = updates.nextBestAction;
+  if (updates.nextTouchDue !== undefined) payload.next_touch_due = updates.nextTouchDue;
+  if (Object.keys(payload).length === 0) return;
+
+  const { error } = await supabase.from('relationships').update(payload).eq('id', relationshipId);
+  if (error) throw new Error(`Failed to update next best action: ${error.message}`);
 }
 
 // Creates a minimal relationship row for a contact who was discovered as

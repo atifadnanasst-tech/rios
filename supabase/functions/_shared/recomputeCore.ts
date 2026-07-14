@@ -16,6 +16,7 @@
 
 export type RecomputeResult = {
   nextBestAction: string | null;
+  nextBestActionDraft: string | null;
   nextTouchDue: string | null;
   classification: string | null;
   correctedTemperature: string | null;
@@ -114,14 +115,16 @@ ${historyBlock}
 
 === YOUR TASK ===
 1. next_best_action: ONE concrete, specific action the owner should take next, in plain language, grounded in the actual history and the organizational knowledge above. Not generic ("follow up") — specific to what's actually happened ("Send the SFP transceiver pricing sheet she asked about on the 25th"). If the history shows the contact has explicitly asked not to be contacted, this must say so plainly (e.g. "Do not contact — they requested removal from outreach") rather than suggesting further outreach.
-2. next_touch_due: a real date in YYYY-MM-DD format for when this action should happen. If the history contains an explicit timing signal (e.g. "I'll revert next week", "let's talk after the holidays"), compute the date from that relative to ${todayStr}. If there's no explicit signal, use a sensible default based on temperature and stage (Hot/recently engaged = sooner, e.g. 3-5 days; Cold/early stage = further out, e.g. 14-21 days). Never return a date in the past.
-3. extracted_facts: an array of genuinely NEW facts learned from the history that aren't already in the known-facts list above — concrete, useful things like project mentions, stated preferences, decision-maker identification, competitor mentions, timelines. Return an empty array if there's nothing new. Each fact needs a short fact_type (e.g. "project_mention", "preference", "decision_maker", "timeline") and a value (the fact itself, one sentence).
-4. classification: based on the MOST RECENT message from the contact (not from the owner), EXACTLY one of these six words: Positive, Neutral, Negative, Info_Request, Not_Interested, Bounced. This is used to correct the relationship's temperature — a naive rule-based system may have already set temperature incorrectly (e.g. treating "please do not contact me" as positive engagement just because a reply arrived) and this classification is what corrects that. If there is NO message from the contact anywhere in the history (a first-touch candidate who has never actually replied), return null for this field — do not invent a classification, and do not suggest a temperature/status change, since nothing has actually happened yet to justify one.
-5. suggested_stage: if — AND ONLY IF — the history contains a genuinely strong, explicit signal that this relationship has clearly moved to a new stage (e.g. "let's schedule a call" → Meeting, "please send the contract" → Negotiation, "can you send a quotation" → Quotation), return that exact stage name from this list: Discovered, Connected, Recognized, Rapport, Trust, Business Context, Need Identified, Solution Alignment, Commercial Interest, Meeting, RFQ, Quotation, Negotiation, Purchase Order, Execution, Repeat Business, Strategic Partner, Advocate. This is a SUGGESTION shown to the owner for their approval, never applied automatically — so it is fine, and expected, to return null far more often than not. Only suggest a stage that is a clear forward step from the current stage (never suggest backward, and never suggest the same stage the relationship is already at). If there is no strong, explicit signal, return null — do not guess or suggest a minor/ambiguous advance.
+2. next_best_action_draft: when — and only when — next_best_action genuinely means "send this contact a message," write the actual, ready-to-send message text itself (no placeholder brackets, no sign-off/signature — those are added separately, per-channel, by the owner). If next_best_action is NOT a send-a-message action (e.g. "Do not contact", "Wait for their reply before proceeding", "Prepare an internal quotation first"), return null here — do not force a draft where one doesn't belong.
+3. next_touch_due: a real date in YYYY-MM-DD format for when this action should happen. If the history contains an explicit timing signal (e.g. "I'll revert next week", "let's talk after the holidays"), compute the date from that relative to ${todayStr}. If there's no explicit signal, use a sensible default based on temperature and stage (Hot/recently engaged = sooner, e.g. 3-5 days; Cold/early stage = further out, e.g. 14-21 days). Never return a date in the past.
+4. extracted_facts: an array of genuinely NEW facts learned from the history that aren't already in the known-facts list above — concrete, useful things like project mentions, stated preferences, decision-maker identification, competitor mentions, timelines. Return an empty array if there's nothing new. Each fact needs a short fact_type (e.g. "project_mention", "preference", "decision_maker", "timeline") and a value (the fact itself, one sentence).
+5. classification: based on the MOST RECENT message from the contact (not from the owner), EXACTLY one of these six words: Positive, Neutral, Negative, Info_Request, Not_Interested, Bounced. This is used to correct the relationship's temperature — a naive rule-based system may have already set temperature incorrectly (e.g. treating "please do not contact me" as positive engagement just because a reply arrived) and this classification is what corrects that. If there is NO message from the contact anywhere in the history (a first-touch candidate who has never actually replied), return null for this field — do not invent a classification, and do not suggest a temperature/status change, since nothing has actually happened yet to justify one.
+6. suggested_stage: if — AND ONLY IF — the history contains a genuinely strong, explicit signal that this relationship has clearly moved to a new stage (e.g. "let's schedule a call" → Meeting, "please send the contract" → Negotiation, "can you send a quotation" → Quotation), return that exact stage name from this list: Discovered, Connected, Recognized, Rapport, Trust, Business Context, Need Identified, Solution Alignment, Commercial Interest, Meeting, RFQ, Quotation, Negotiation, Purchase Order, Execution, Repeat Business, Strategic Partner, Advocate. This is a SUGGESTION shown to the owner for their approval, never applied automatically — so it is fine, and expected, to return null far more often than not. Only suggest a stage that is a clear forward step from the current stage (never suggest backward, and never suggest the same stage the relationship is already at). If there is no strong, explicit signal, return null — do not guess or suggest a minor/ambiguous advance.
 
 Return ONLY valid JSON, no markdown fences, in exactly this shape:
 {
   "next_best_action": "...",
+  "next_best_action_draft": "..." or null,
   "next_touch_due": "YYYY-MM-DD",
   "extracted_facts": [{"fact_type": "...", "value": "..."}],
   "classification": "..." or null,
@@ -201,6 +204,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
     .from('relationships')
     .update({
       next_best_action: parsed.next_best_action || null,
+      next_best_action_draft: parsed.next_best_action_draft || null,
       ...(safeDueDate ? { next_touch_due: safeDueDate } : {}),
       ...(correctedTemperature ? { relationship_temperature: correctedTemperature } : {}),
       ...(correctedStatus ? { outreach_status: correctedStatus } : {}),
@@ -229,6 +233,7 @@ Return ONLY valid JSON, no markdown fences, in exactly this shape:
 
   return {
     nextBestAction: parsed.next_best_action || null,
+    nextBestActionDraft: parsed.next_best_action_draft || null,
     nextTouchDue: safeDueDate,
     classification,
     correctedTemperature,

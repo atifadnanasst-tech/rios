@@ -497,7 +497,9 @@ export default function App() {
       aiConfidence: 80,
       tags: ['New Account'],
       whyToday: `${newRelName} was recently added to RIOS. Perfect timing to establish a professional line of communication.`,
-      excludedUntil: null
+      excludedUntil: null,
+      nextBestActionDraft: null,
+      nextTouchDue: null
     };
 
     const newWorkItem = {
