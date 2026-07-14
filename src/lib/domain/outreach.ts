@@ -106,10 +106,34 @@ export async function generateOutreachRows(relationshipIds: string[]): Promise<O
 }
 
 // ── XLSX export ───────────────────────────────────────────────────────────────
+// Converts typographic/"smart" quotes and dashes to their plain equivalents.
+// Defensive normalization: AI-drafted text can occasionally include curly
+// quotes depending on the model's own output style, and once such a
+// character is in a message, some destination apps (e.g. LinkedIn's
+// compose box) render or re-format it inconsistently on paste. Applying
+// this here means the exported file itself is always plain, straight
+// quotes — regardless of which step introduced the curly ones.
+function normalizeQuotes(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-');
+}
+
 export function exportOutreachToXlsx(rows: OutreachRow[]): void {
   const wsData = [
     ['Name', 'Designation', 'Company', 'Country', 'Email', 'LinkedIn URL', 'Message 1', 'Message 2'],
-    ...rows.map(r => [r.name, r.designation, r.company, r.country, r.email, r.linkedin_url, r.message_1, r.message_2]),
+    ...rows.map(r => [
+      r.name,
+      r.designation,
+      r.company,
+      r.country,
+      r.email,
+      r.linkedin_url,
+      normalizeQuotes(r.message_1),
+      normalizeQuotes(r.message_2),
+    ]),
   ];
 
   const ws = XLSX.utils.aoa_to_sheet(wsData);

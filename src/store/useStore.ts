@@ -371,7 +371,7 @@ export const useStore = create<RIOSState>((set, get) => ({
   refreshRelationshipFields: async (relationshipId) => {
     const { data, error } = await supabase
       .from('relationships')
-      .select('relationship_temperature, outreach_status, next_best_action, next_touch_due, stage, icp_score, suggested_stage, touch_number, cadence_step')
+      .select('relationship_temperature, outreach_status, next_best_action, next_best_action_draft, next_touch_due, stage, icp_score, suggested_stage, touch_number, cadence_step')
       .eq('id', relationshipId)
       .single();
 
@@ -380,9 +380,18 @@ export const useStore = create<RIOSState>((set, get) => ({
       return;
     }
 
+    // Fixed 2026-07-14: next_touch_due (and next_best_action_draft) were
+    // already being fetched here, but never actually applied to the
+    // patch below — so a manual date edit or a recompute always saved
+    // correctly to the database, but the open panel kept showing the
+    // OLD date until a full page refresh re-fetched everything from
+    // scratch. Real bug, purely a "the screen wasn't told" issue, never
+    // a save failure.
     const patch = {
       status: mapTemperatureToStatus(data.relationship_temperature),
       nextBestAction: data.next_best_action || undefined,
+      nextBestActionDraft: data.next_best_action_draft ?? null,
+      nextTouchDue: data.next_touch_due ?? null,
       currentStage: data.stage as any,
       score: data.icp_score,
       suggestedStage: (data.suggested_stage as any) || null,
